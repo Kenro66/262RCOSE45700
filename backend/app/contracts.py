@@ -6,7 +6,10 @@
 - 证据编号（E1、E2……）只在本轮问答内有效
 - 接口只加字段，不改名；改本文件要走 PR，提供方和使用方都要审
 
-字段命名暂按对外接口统一为 filename、page、lang【待确认：王诗琪、孙忠其、王一霖】。
+字段命名分内外两层（10/25 PM 定，待王诗琪、孙忠其、王一霖确认）：
+- 内部（ParsedPage、C2、search_similar 的结果）按孙忠其的接口文档：page_number、language
+- 对外（C1、C5、C6）：filename、page、lang
+- 只在引用校验（qa/citation.py）里把 page_number 转成 page；文件名只有 filename 一种写法
 """
 
 from enum import Enum
@@ -51,33 +54,57 @@ class DocumentRecord(BaseModel):
     uploaded_at: AwareDatetime  # ISO 8601，带时区
 
 
+# ---------- ParsedPage 单页解析结果（王诗琪提供，孙忠其使用） ----------
+
+
+class ParsedPage(BaseModel):
+    """parse_pdf() 的输出，一页一个。见孙忠其《ParsedPage 接口文档》v1.0。"""
+
+    schema_version: str = "1.0"
+    document_id: str
+    page_index: int = Field(ge=0)  # 程序内部用，从 0 开始
+    page_number: int = Field(ge=1)  # 物理页码，从 1 开始，用于引用
+    text: str  # 尽量保留原换行、段落和条款结构；没有文字时为 ""
+    language: Optional[str]  # ko / zh / en；无法判断时为 null
+    content_hash: Optional[str] = None  # "sha256:..."，整页 text 的哈希
+    char_count: Optional[int] = Field(default=None, ge=0)
+    parser_version: Optional[str] = None
+    blocks: Optional[list[dict[str, Any]]] = None  # MVP 为 null
+
+
 # ---------- C2 文本块（孙忠其提供，王诗琪存储） ----------
 
 
 class Chunk(BaseModel):
-    """C2：chunk_pages() 的输出，一个文本块不跨页。
-
-    字段以孙忠其的接口文档（ParsedPage、Chunking、Embedding）为准；
-    page、lang 两个名字是按对外接口统一后的写法【待确认：孙忠其】。
-    """
+    """C2：chunk_pages() 的输出，一个文本块不跨页。见孙忠其《Chunking 接口文档》v1.0。"""
 
     # 标识
-    schema_version: str
-    chunk_id: str
+    schema_version: str = "1.0"
+    chunk_id: str = Field(examples=["DOC001_C000003"])
     document_id: str
     chunk_index: int = Field(ge=0)
     # 页码
-    page_index: int = Field(ge=0)  # 【待确认：是否从 0 开始】
-    page: int = Field(ge=1)  # 物理页码；孙忠其文档原名 page_number
+    page_index: int = Field(ge=0)  # 从 0 开始
+    page_number: int = Field(ge=1)  # 物理页码，从 1 开始
     # 内容
-    text: str
-    section_title: Optional[str] = None
-    lang: str  # 孙忠其文档原名 language
+    text: str = Field(min_length=1)  # 空页不生成 chunk
+    section_title: Optional[str]  # 无法识别时为 null
+    language: Optional[str]  # 无法判断时为 null
     # 统计
     token_count: int = Field(ge=0)
-    char_count: int = Field(ge=0)
+    char_count: Optional[int] = Field(ge=0)
     # 校验
-    content_hash: str
+    content_hash: Optional[str]  # 当前 chunk text 的哈希，不是整页的
+
+
+class EmbeddingRecord(BaseModel):
+    """embed_chunks() 的单条输出。见孙忠其《Embedding 接口文档》v1.0。
+
+    模型名、维度等全局配置不在每条记录里重复保存；MVP 为 bge-m3、1024 维【待确认：孙忠其】。
+    """
+
+    chunk_id: str  # 与输入的 C2 完全一致
+    vector: list[float] = Field(min_length=1)
 
 
 class SearchHit(BaseModel):
@@ -85,7 +112,7 @@ class SearchHit(BaseModel):
 
     chunk_id: str
     document_id: str
-    page: int = Field(ge=1)  # 《MVP技术方案》5.4 原写 page_number
+    page_number: int = Field(ge=1)
     text: str
     score: float
 
