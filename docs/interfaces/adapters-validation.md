@@ -90,8 +90,8 @@ and a real non-listening endpoint raising GenerationError.
 Configuration switching test: only a temporary .env was edited, changing
 GENERATION_MODEL model-a to model-b and the API path /api-a to /api-b; the
 HTTP server observed each new model and address without code changes. These
-are fixture model IDs, not two real LLMs. Actual generation model/service
-switching remains pending.
+are fixture model IDs, not two real LLMs. Real model switching was separately
+verified against the school's gateway as recorded below.
 
 Real generation smoke test passed on 2026-10-25 using the school's Baze API
 root https://api.baze.co/v1/gateway and model ID gpt-6-sol. Running
@@ -108,5 +108,26 @@ it does not assert that the model chose to invoke a tool. No key or response
 body was logged. backend/.env is confirmed ignored by Git. The model is only
 a temporary development service, not the final NPU model selection.
 
-Do not mark issue 10 closed until the remaining configuration-switch acceptance
-and submission review are complete.
+## Real .env-only model switching (2026-10-25)
+
+The school's authenticated model list returned both gpt-6-sol and gpt-6-luna.
+The same question was sent through the existing generate_text() adapter:
+"What is retrieval augmented generation? Reply in one short sentence."
+
+| Phase | Only edited .env setting | Non-empty response | Characters |
+| --- | --- | --- | --- |
+| Before | GENERATION_MODEL=gpt-6-sol | PASS | 107 |
+| Switched | GENERATION_MODEL=gpt-6-luna | PASS | 154 |
+| Restored | GENERATION_MODEL=gpt-6-sol | PASS | 121 |
+
+GENERATION_BASE_URL stayed https://api.baze.co/v1/gateway. File hashes of
+config.py, embedding.py and generation.py were identical in all three phases.
+A digest of the remaining .env settings confirmed no other configuration value
+changed. The original model was restored. No code edits, alternate client,
+environment model override, or fixture server were used for these three calls.
+Credentials were not printed. Both models are temporary test choices only.
+
+This satisfies the model-name branch of the "model name OR address" switch
+acceptance criterion; a second real gateway address was not tested. The local
+functional checks for issue 10 are complete. Final review and submission of
+the latest template and validation documentation remain separate GitHub steps.
