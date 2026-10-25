@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---- 本组补充（《GitHub协作规则》第 12 条） ----
+# 前端依赖和构建产物（frontend/ 里也有自己的 .gitignore）
+node_modules/
+# 上传的原始 PDF 不提交，只保留空目录
+backend/uploads/*
+!backend/uploads/.gitkeep
