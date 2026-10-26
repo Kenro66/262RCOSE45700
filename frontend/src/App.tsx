@@ -160,12 +160,24 @@ const citations: Citation[] = [
 ]
 
 const initialMessages: Message[] = [
-  { id: 1, role: 'user', body: '중국에서 한국으로 입국하는 성인 여행객입니다. 일반 담배 2보루(400개비)를 가지고 있는데, 모두 면세가 되나요?' },
+  {
+    id: 1,
+    role: 'user',
+    body: '중국에서 한국으로 입국하는 성인 여행객입니다. 일반 담배 2보루(400개비)를 가지고 있는데, 모두 면세가 되나요?',
+  },
   {
     id: 2,
     role: 'assistant',
     body: '아니요. 한국 입국 시 일반 담배의 면세한도는 여행자 1명당 200개비(1보루)입니다. 400개비는 면세한도를 초과하므로 세관에 신고해야 합니다. 실제 세금은 적용 조건에 따라 확인이 필요합니다.',
     citations: [1],
+    citationDetails: [
+      {
+        evidence_id: 'E1',
+        filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
+        page: 27,
+        quote: '담배 · 궐련 · 200개비',
+      },
+    ],
     kind: 'NORMAL',
     responseStatus: 'ANSWER',
   },
@@ -237,7 +249,7 @@ function createMockChatResponse(
         {
           evidence_id: 'E1',
           filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-          page: 1,
+          page: 27,
           quote: '담배 · 궐련 · 200개비',
         },
       ],
@@ -857,15 +869,27 @@ function ChatPage({
     setInput('')
     requestMockResponse(conversationId, trimmed, predefinedResponse)
   }
+const sendMessage = () => submitQuestion(input)
+const submitRecommendedScenario = (scenario: RecommendedScenario) => {
+  
+  const response: ChatResponse = scenario.status === 'ANSWER'
+    ? {
+        status: 'ANSWER',
+        answer: t('response.tobaccoAnswer'),
+        citations: [1],
+        citationDetails: [
+          {
+            evidence_id: 'E1',
+            filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
+            page: 27,
+            quote: '담배 · 궐련 · 200개비',
+          },
+        ],
+      }
+    : { status: scenario.status }
 
-  const sendMessage = () => submitQuestion(input)
-
-  const submitRecommendedScenario = (scenario: RecommendedScenario) => {
-    const response: ChatResponse = scenario.status === 'ANSWER'
-      ? { status: 'ANSWER', answer: t('response.tobaccoAnswer'), citations: [1] }
-      : { status: scenario.status }
-    submitQuestion(scenario.question, response)
-  }
+  submitQuestion(scenario.question, response)
+}
 
   const retryRequest = (question?: string) => {
     if (!conversation || !question || loading) return
