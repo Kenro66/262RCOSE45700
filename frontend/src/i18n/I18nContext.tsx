@@ -25,14 +25,15 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = locale
   }, [locale])
 
-  const value = useMemo<I18nValue>(() => ({
-    locale,
-    setLocale,
-    t: (key, variables = {}) => Object.entries(variables).reduce(
-      (text, [name, replacement]) => text.replaceAll(`{${name}}`, String(replacement)),
-      dictionaries[locale][key],
-    ),
-  }), [locale])
+ const value = useMemo<I18nValue>(() => ({
+  locale,
+  setLocale,
+  t: (key, variables = {}) => Object.entries(variables).reduce(
+    (text, [name, replacement]) =>
+      text.split(`{${name}}`).join(String(replacement)),
+    dictionaries[locale][key],
+  ),
+}), [locale])
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }

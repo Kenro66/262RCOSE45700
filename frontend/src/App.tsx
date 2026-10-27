@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from './i18n/I18nContext'
 import type { TranslationKey } from './i18n/zh-CN'
 
+import {
+  createMockSystemError,
+  getApiErrorData,
+  isSystemErrorResponse,
+} from './api/client'
 type Page = 'documents' | 'chat'
 type Status = 'Ready' | 'Processing' | 'Failed'
 type ChatMode = 'NORMAL' | 'CLARIFICATION' | 'INSUFFICIENT_EVIDENCE' | 'CONFLICTING_EVIDENCE' | 'SYSTEM_ERROR'
@@ -12,6 +17,7 @@ type ChatResponse = {
   answer?: string
   citations?: number[]
   citationDetails?: C5Citation[]
+  message?: string
 }
 
 type C5Citation = {
@@ -37,8 +43,9 @@ type RecommendedScenario = {
   status: ResponseStatus
 }
 
-type DocumentItem = {
+ type DocumentItem = {
   id: number
+  documentId?: string
   name: string
   date: string
   status: Status
@@ -91,6 +98,7 @@ function convertC1Document(
 ): DocumentItem {
   return {
     id,
+    documentId: doc.document_id,
     name: doc.filename,
     date: doc.uploaded_at,
     status:
@@ -106,38 +114,32 @@ function convertC1Document(
   }
 }
 
+// C1 模拟文件列表：按照 Issue #8 的后端 JSON 示例
+// 包含 FAILED、PROCESSING、READY 三种状态
 const mockC1Documents: C1Document[] = [
   {
-    document_id: 'doc_001',
-    filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-    status: 'READY',
-    error_message: null,
-    page_count: 24,
-    uploaded_at: '2026-10-15T14:32:00+09:00',
+    document_id: 'doc_003',
+    filename: '扫描件.pdf',
+    status: 'FAILED',
+    error_message: '暂不支持扫描型PDF',
+    page_count: null,
+    uploaded_at: '2026-10-27T10:30:00+09:00',
   },
   {
     document_id: 'doc_002',
-    filename: '中国海关_进境旅客行李物品通关须知.pdf',
-    status: 'READY',
-    error_message: null,
-    page_count: 36,
-    uploaded_at: '2026-10-15T14:18:00+09:00',
-  },
-  {
-    document_id: 'doc_003',
-    filename: '한국관세청_여행자휴대품신고안내.pdf',
+    filename: '旅客申报指南.pdf',
     status: 'PROCESSING',
     error_message: null,
     page_count: null,
-    uploaded_at: '2026-10-15T13:04:00+09:00',
+    uploaded_at: '2026-10-27T10:20:00+09:00',
   },
   {
-    document_id: 'doc_004',
-    filename: '구버전_한국입국물품신고안내_스캔본.pdf',
-    status: 'FAILED',
-    error_message: '실패 사유: 텍스트를 추출할 수 없음 · 스캔 문서',
-    page_count: null,
-    uploaded_at: '2026-10-15T17:46:00+09:00',
+    document_id: 'doc_001',
+    filename: '携带物品政策.pdf',
+    status: 'READY',
+    error_message: null,
+    page_count: 12,
+    uploaded_at: '2026-10-27T10:00:00+09:00',
   },
 ]
 
@@ -189,8 +191,14 @@ const enableDevelopmentScenarioControls = false
 // Convert the C5 API response into the format used by the Chat UI.
 function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
   return {
+    // 后端 ANSWERED 对应前端 ANSWER
     status: data.status === 'ANSWERED' ? 'ANSWER' : data.status,
+
+    // 保存回答内容和后端提示信息
     answer: data.answer ?? undefined,
+    message: data.message ?? undefined,
+
+    // 将 E1、E2 等证据编号转换为前端使用的数字
     citations: data.citations
       .map((citation) => {
         const citationId = Number(
@@ -199,6 +207,8 @@ function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
         return citationId
       })
       .filter((id) => Number.isFinite(id)),
+
+    // 保留 PDF 文件名、页码和证据原文
     citationDetails: data.citations,
   }
 }
@@ -841,25 +851,52 @@ function ChatPage({
     ])
   }
 
-  const requestMockResponse = (conversationId: number, question: string, predefinedResponse?: ChatResponse) => {
-    setLoading(true)
-    window.setTimeout(() => {
-      const response = predefinedResponse ?? createMockChatResponse(question, readyDocumentCount)
-      const body = response.status === 'ANSWER'
-        ? response.answer ?? ''
-        : automaticResponseContent[response.status].body
-      onSetMessages(conversationId, (current) => [...current, {
-        id: Date.now(),
-        role: 'assistant',
-        body,
-        citations: response.citations,
-        citationDetails: response.citationDetails,
-        responseStatus: response.status,
-        request: question,
-      }])
-      setLoading(false)
-    }, 1500)
-  }
+  const requestMockResponse = (
+  conversationId: number,
+  question: string,
+  predefinedResponse?: ChatResponse
+) => {
+  setLoading(true)
+
+  window.setTimeout(() => {
+    // 本地测试：模拟 HTTP 500 返回 SYSTEM_ERROR JSON
+    let response: ChatResponse
+
+    if (predefinedResponse?.status === 'SYSTEM_ERROR') {
+      const error = createMockSystemError()
+      const data = getApiErrorData(error)
+
+      if (error.status === 500 && isSystemErrorResponse(data)) {
+        response = convertC5ChatResponse({
+  status: 'SYSTEM_ERROR',
+  answer: null,
+  citations: [],
+  message: data.message,
+})
+      } else {
+        response = predefinedResponse
+      }
+    } else {
+      response = predefinedResponse ?? createMockChatResponse(question, readyDocumentCount)
+    }
+
+    const body = response.status === 'ANSWER'
+      ? response.answer ?? ''
+      : automaticResponseContent[response.status].body
+
+    onSetMessages(conversationId, (current) => [...current, {
+      id: Date.now(),
+      role: 'assistant',
+      body,
+      citations: response.citations,
+      citationDetails: response.citationDetails,
+      responseStatus: response.status,
+      request: question,
+    }])
+
+    setLoading(false)
+  }, 1500)
+}
 
   const submitQuestion = (question: string, predefinedResponse?: ChatResponse) => {
     const trimmed = question.trim()
