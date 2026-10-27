@@ -1,6 +1,6 @@
-"""One synchronous vector search; database implementation is injected by backend."""
+"""One asynchronous vector search; database implementation is injected by backend."""
 
-import inspect
+import asyncio
 from math import isfinite
 from typing import Callable, Protocol, Sequence
 
@@ -9,15 +9,15 @@ from ..contracts import SearchHit
 
 
 class SearchFunction(Protocol):
-    def __call__(self, query_vector: list[float], *, top_k: int) -> Sequence[SearchHit]: ...
+    async def __call__(self, query_vector: list[float], *, top_k: int) -> Sequence[SearchHit]: ...
 
 
 class RetrievalError(RuntimeError):
     """Embedding, backend search, or returned evidence was invalid."""
 
 
-def retrieve(question: str, *, search_similar: SearchFunction, top_k: int | None = None,
-             embedder: Callable | None = None) -> list[SearchHit]:
+async def retrieve(question: str, *, search_similar: SearchFunction, top_k: int | None = None,
+                   embedder: Callable | None = None) -> list[SearchHit]:
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be a nonempty string")
     if top_k is None:
@@ -27,18 +27,18 @@ def retrieve(question: str, *, search_similar: SearchFunction, top_k: int | None
             raise ValueError("RETRIEVAL_TOP_K must be an integer from 1 to 100") from exc
     if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 100:
         raise ValueError("top_k must be an integer from 1 to 100")
-    if not callable(search_similar) or inspect.iscoroutinefunction(search_similar):
-        raise ValueError("Inject a synchronous backend search callable")
+    if not callable(search_similar):
+        raise ValueError("Inject an asynchronous backend search callable")
     if embedder is None:
         from ..adapters.embedding import embed_texts
         embedder = embed_texts
     try:
-        vectors = embedder([question])
+        vectors = await asyncio.to_thread(embedder, [question])
         if len(vectors) != 1 or len(vectors[0]) != 1024:
             raise ValueError("Expected one 1024-dimensional query vector")
         if any(isinstance(x, bool) or not isinstance(x, (int, float)) or not isfinite(x) for x in vectors[0]) or not any(vectors[0]):
             raise ValueError("Query vector must be finite and nonzero")
-        rows = search_similar(vectors[0], top_k=top_k)
+        rows = await search_similar(vectors[0], top_k=top_k)
         if not isinstance(rows, (list, tuple)):
             raise ValueError("Backend search must return a list or tuple of SearchHit")
         hits = [SearchHit.model_validate(row) for row in rows]

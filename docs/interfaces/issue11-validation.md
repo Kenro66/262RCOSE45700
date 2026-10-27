@@ -97,6 +97,21 @@ $env:POLICY_FIXTURE_DIR = 'C:\Users\Administrator\Desktop\sw实战作业\后端�
 此前全量 41 项通过的记录保持为历史结果；新增测试后本轮未重新执行全量测试，
 不声称已经完成 45 项全量回归。新增测试均为 Mock 单元测试，不代表真实数据库验收。
 
-公共 contracts.py 与 #10 适配器不变。当前同步注入方式为本地接入基线，不代表后端已经确认。
+公共 contracts.py 与 #10 适配器不变。此前同步注入方式为历史本地基线，已由下节异步约定替代。
 本次可提交代码供审核，但真实中国方向冒烟检索和 Top-k 的 Issue 确认尚待完成，
 不应在 PR 中写 `Closes #11` 或宣称所有验收通过。
+
+## 异步及入库契约更新（最新）
+
+`retrieve` 已改为 async，使用 await 调用后端 search_similar，默认 Top-k 仍为5。
+同步问题 Embedding 在线程中运行；不改 embed_texts、embed_chunks、chunk_pages 或公共类型。
+验证脚本已用异步Mock和await调用；CLI只在程序入口使用asyncio.run。
+检索定向测试14项通过。包含本地未提交#12的完整工作快照曾通过95项回归；
+不能将该记录当作当前仅#11分支的测试数量，独立分支结果见下方记录。
+已读取PR #28的实际异步接口、ChunkData和上传流水线，现有191组Chunk/向量全部通过其ChunkData校验；
+这是本地格式兼容验证，不是数据库入库或真实向量搜索。#11连接说明见retrieval.md。
+本次同时提交test_ingestion_embedding_contract.py，覆盖已有embed_chunks的包装、顺序、数量、维度和空输入。
+不新增或修改#12的生成编排、引用解析、Prompt或测试，仍待真实数据库完成中国方向检索验收。
+
+仅#11分支独立回归：`python -m unittest discover -s tests -v`，52项通过、0失败、0跳过，17.973秒。
+包含原38页真实JSON、14项异步Retriever测试及4项入库契约测试，不含#12测试；未重新运行模型或真实数据库。

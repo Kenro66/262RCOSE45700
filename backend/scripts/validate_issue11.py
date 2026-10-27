@@ -1,12 +1,13 @@
 """Run real JSON/tokenizer/optional embedding checks without a database."""
 
 import argparse
+import asyncio
 from collections import Counter
 import json
 from math import isfinite
 from pathlib import Path
 import sys
-from unittest.mock import Mock
+from unittest.mock import AsyncMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -17,7 +18,7 @@ from app.qa.retriever import retrieve
 FILES = {"DOC003": "response_DOC003.json", "DOC004": "response_1792900335398.json", "DOC005": "response_1792900378506.json"}
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixtures", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -78,10 +79,10 @@ def main():
             args.output_dir.joinpath("summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps({"stage": "real_embedding", "document_id": stats["document_id"], "vectors": len(records), "dimension": 1024}), flush=True)
         selected = doc_chunks["DOC003"][:5]
-        search = Mock(return_value=[SearchHit(chunk_id=c.chunk_id, document_id=c.document_id, page_number=c.page_number, text=c.text, score=.9) for c in selected])
-        result = retrieve("中国旅客进境时，携带的行李物品应当如何申报？", search_similar=search)
-        vector = search.call_args.args[0]
-        assert len(vector) == 1024 and search.call_args.kwargs["top_k"] == 5 and len(result) <= 5
+        search = AsyncMock(return_value=[SearchHit(chunk_id=c.chunk_id, document_id=c.document_id, page_number=c.page_number, text=c.text, score=.9) for c in selected])
+        result = await retrieve("中国旅客进境时，携带的行李物品应当如何申报？", search_similar=search)
+        vector = search.await_args.args[0]
+        assert len(vector) == 1024 and search.await_args.kwargs["top_k"] == 5 and len(result) <= 5
         summary["mock_retrieval"] = {"real_question_embedding": True, "query_dimension": len(vector), "mock_search_similar": True,
                                      "top_k": 5, "returned": len(result), "document_ids": [h.document_id for h in result],
                                      "not_real_database_retrieval": True}
@@ -90,4 +91,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
