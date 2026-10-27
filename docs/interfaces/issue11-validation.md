@@ -1,5 +1,7 @@
 # Issue #11：实现约定与本地验收
 
+> 最新状态：2026-10-27 已完成隔离环境真实入库和向量检索，详见 [真实联调记录](issue11-real-integration.md)。此前“尚未联调”的段落是对应日期的历史记录，不代表当前全部未测；正式后端装配及召回质量问题仍待处理。
+
 ## 分支依赖与范围
 
 - 开发时基线是当时未合并 PR #22 的提交 `05992668a22472852ea093fb322640dcd605590e`；它包含当时上游 main `07eba8a`。PR 合并状态及最新 main 须在提交前重新核查，不能把此历史快照当作实时状态。
@@ -64,9 +66,8 @@ $env:POLICY_FIXTURE_DIR = 'C:\Users\Administrator\Desktop\sw实战作业\后端�
 
 ## 后端待提供
 
-- parse_pdf 实际代码和返回结构，以及 get_documents 的实际返回格式。
-- search_similar 实际签名、同步／异步、SearchHit 返回结构、READY 文件过滤及可运行数据库。
-- 姜超正式中国方向冒烟题和预期证据；验证脚本中的中文问题只是自拟开发样本。
+- parse_pdf、search_similar、get_documents 已取得代码并核对实际接口，隔离数据库已运行；剩余是后端正式数据库初始化和应用装配的确认及复测。
+- 姜超10题题单已提供；原验证脚本中的中文问题仍只是开发样本，正式题单真实检索记录另见 issue11-real-integration.md。
 - 在 Issue #11 确认 Top-k=5 并由王诗琪回复知晓；本轮只提供留言草稿，未替用户发布评论。
 
 ## 2026-10-26 本地执行结果
@@ -115,3 +116,14 @@ $env:POLICY_FIXTURE_DIR = 'C:\Users\Administrator\Desktop\sw实战作业\后端�
 
 仅#11分支独立回归：`python -m unittest discover -s tests -v`，52项通过、0失败、0跳过，17.973秒。
 包含原38页真实JSON、14项异步Retriever测试及4项入库契约测试，不含#12测试；未重新运行模型或真实数据库。
+
+## 2026-10-27 真实联合联调补充（最新）
+
+三份真实PDF经后端parser、chunk_pages、CPU BGE-M3和PR #28入库流程，在隔离Postgres18+pgvector中生成并保存191组数据，最终全部READY。
+实际await调用search_similar，默认Top-k=5，分数降序及READY过滤验证通过。
+中国方向Q008的5条结果全部来自中国文件，但缺少第3页跨页申报条款；Q006/Q007仍混入韩国片段。
+详细文档编号映射、来源提交、Top-5原始分数及限制见issue11-real-integration.md。
+
+本次是使用临时database.py/main.py装配的隔离实测，不是原团队main开箱即用验证；不将这两个临时文件纳入#11提交。
+整合快照RAG回归88项通过，后端补充回归20项通过；与本分支52项是不同测试集，不能直接覆盖原统计。
+检索验证结果不等于#12回答验收通过，不关闭Issue，也不声称召回质量问题全部解决。

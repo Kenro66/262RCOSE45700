@@ -1,6 +1,6 @@
 # Issue #11：MVP 单次向量检索接口
 
-本文件描述 #11 检索器的异步调用方式；后端接口已按 PR #28 代码核对，但尚未完成数据库实连。公共 `contracts.py` 不变。
+本文件描述 #11 检索器的异步调用方式。已在隔离整合环境完成真实 Postgres/pgvector 检索；使用了本地临时数据库初始化和应用装配层，正式后端基线仍需复测。公共 `contracts.py` 不变。证据见 [真实联调记录](issue11-real-integration.md)。
 
 ## 调用方式
 
@@ -16,7 +16,7 @@ async def retrieve(question, *, search_similar, top_k=None, embedder=None) -> li
 - 同步 `embed_texts()` 在线程中调用，核心接口不变；不阻塞异步事件循环。同步搜索函数不再兼容，调用方必须迁移为 async。
 - 结果沿用后端顺序，最多返回 top_k 条；不实现 SQL、向量库、BM25、混合检索、重排或国家硬编码过滤。
 - 无结果原样返回 `[]`；模型、搜索或返回结构异常抛出 `RetrievalError`，保留底层原因，不伪造证据。
-- 后端应按现有约定只搜索 READY 文件；本模块无法在数据库尚未提供时验证该过滤。
+- READY 过滤由后端负责。已在隔离真实数据库中将测试文档临时改为 PROCESSING，确认其片段不再被检索，随后恢复 READY。
 
 ## 2026-10-27 异步连接基线（替代此前同步约定）
 
@@ -36,13 +36,13 @@ PR #28 检查提交为 `ec8e359b0b8af518092a15ff909da472b5b7dd97`，其实际 se
 
 `SearchHit` 保留 `chunk_id`、`document_id`、`page_number`、`text`、`score`。它没有 `filename`。
 
-文件名应通过 `document_id` 关联现有 C1 `DocumentRecord.filename`，不是向 `SearchHit` 擅自增加字段。PR #28 已提供异步 get_documents，真实数据库关联仍待联调；本次不实现 #12 的 Citation Resolver。
+文件名通过 `document_id` 关联现有 C1 `DocumentRecord.filename`，不是向 `SearchHit` 擅自增加字段。PR #28 的异步 get_documents 已在隔离数据库验证；不存在的 ID 从返回映射省略。本次不提交 #12 的 Citation Resolver。
 
 ## 测试边界
 
 单元测试使用依赖注入，验证默认 top-k、向量检查、结果结构和失败传播。真实验证脚本另调用本地 BGE-M3 对中文问题生成向量，再调用 Mock 搜索函数。
 
-Mock 返回中国文档记录只证明来源标识被保留，不能证明真实数据库检索命中中国政策。姜超的10题题单已提供，真实数据库检索验收仍需后端环境就绪。
+Mock 返回中国文档记录只证明来源标识被保留。后续真实联调使用姜超题单 Q008，其 Top-5 全部来自中国文件；Q006/Q007 则混入韩国片段，不能一概声称国家来源正确。正式后端装配尚待确认，不宣称整个团队 main 已可直接运行。
 
 ## #11 接入示例
 
