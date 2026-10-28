@@ -29,9 +29,11 @@ ERROR_PAGE_EXTRACTION = "上传失败,请重试!"
 class PdfParseError(ValueError):
     """整份解析失败；异常消息写入 error_message。"""
 
-def _failed(message: str) -> NoReturn:
-    """异常消息记录至日志"""
-    logger.warning("%s", message)
+def _failed(
+    message: str, *, detail: str | None = None, exc_info: bool = False
+) -> NoReturn:
+    """日志保留详细原因，对外异常仅包含指定提示。"""
+    logger.warning("%s", detail or message, exc_info=exc_info)
     raise PdfParseError(message) from None
 
 
@@ -81,7 +83,7 @@ def parse_pdf(pdf_path: str | Path) -> list[ParsedPage]:
     try:
         document = pymupdf.open(pdf_path)
     except Exception:
-        _failed(ERROR_CANNOT_OPEN)
+        _failed(ERROR_CANNOT_OPEN, detail="PDF 打开失败", exc_info=True)
 
     try:
         if document.needs_pass:
@@ -99,7 +101,11 @@ def parse_pdf(pdf_path: str | Path) -> list[ParsedPage]:
                 page = document.load_page(page_index)
                 text = page.get_text("text").strip()
             except Exception:
-                _failed(ERROR_PAGE_EXTRACTION)
+                _failed(
+                    ERROR_PAGE_EXTRACTION,
+                    detail=f"PDF 第 {page_number} 页读取或文字提取失败",
+                    exc_info=True,
+                )
 
             if not text:
                 empty_page_count += 1
@@ -130,6 +136,6 @@ def parse_pdf(pdf_path: str | Path) -> list[ParsedPage]:
     except PdfParseError:
         raise
     except Exception:
-        _failed(ERROR_PAGE_EXTRACTION)
+        _failed(ERROR_PAGE_EXTRACTION, detail="PDF 解析过程异常", exc_info=True)
     finally:
         document.close()
