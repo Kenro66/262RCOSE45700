@@ -1,0 +1,10 @@
+{
+  "description": "This platform enables staff to upload and query travel policy documents between China and South Korea, providing accurate answers with verifiable citations.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
