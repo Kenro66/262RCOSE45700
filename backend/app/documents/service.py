@@ -5,7 +5,7 @@ GET    /api/documents          C1 列表（最新在前）
 DELETE /api/documents/{id}     删除 DB 记录（级联 ParsedPage/C2）与 uploads/ 原文件
 
 上传校验（与 Issue #6 失败规则一致）：
-- content_type 必须是 application/pdf，否则 400「文件不是 PDF 类型」
+- content_type 接受 application/pdf 或 application/x-pdf，否则 400「文件不是 PDF 类型」
 - 魔数必须是 %PDF-，否则 400「文件不是 PDF 类型」
 - 非空、不超过 25MB
 
@@ -19,15 +19,13 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app.contracts import DocumentRecord, DocumentStatus
+from app.contracts import DocumentRecord
 from app.database import SessionFactory
 from app.documents.pipeline import ProcessingResult
 from app.storage.repo import (
@@ -115,7 +113,10 @@ def create_documents_router(
         background_tasks: BackgroundTasks,
         file: Annotated[UploadFile, File(description="PDF document")],
     ) -> DocumentRecord:
-        filename = Path(file.filename or "document.pdf").name
+        filename = (file.filename or "document.pdf").replace("\\", "/").rsplit("/", 1)[-1] or "document.pdf"
+        if len(filename) > 255:
+            await file.close()
+            raise HTTPException(status_code=400, detail="文件名不能超过 255 个字符")
 
         if file.content_type not in {"application/pdf", "application/x-pdf"}:
             await file.close()
@@ -123,7 +124,12 @@ def create_documents_router(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_NOT_PDF
             )
 
-        document_id = await generate_document_id()
+        try:
+            document_id = await generate_document_id()
+        except Exception as exc:
+            await file.close()
+            logger.exception("分配文档编号失败")
+            raise HTTPException(status_code=503, detail="数据库暂时不可用，请稍后重试") from exc
         pdf_path = UPLOAD_DIR / f"{document_id}.pdf"
 
         try:

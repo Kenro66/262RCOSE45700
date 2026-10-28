@@ -7,8 +7,7 @@ chunk_pages / embed_chunks 由孙忠其提供（Issue #11 / #10），
 await。RAG 侧 chunk_pages() / embed_chunks() 公共接口不修改。
 
 失败即整份 FAILED 并写 error_message（C1）：
-- 解析失败（Issue #6 的失败规则；error_message 为统一提示「上传失败,请重试!」，
-  详细原因只写 parser 日志）
+- 解析失败：保留已合并 Issue #6 的分类提示；详细堆栈只写 parser 日志
 - chunk_pages 返回空列表（整份没有可用文字）→「未提取到文字」
   （10/25 范围变更；此时 C2 不写入该文件的任何文本块）
 - embed_chunks 有 chunk 缺失向量（含返回空列表）→「向量化不完整（缺失向量）」
@@ -80,7 +79,7 @@ async def process_document(
         try:
             pages = await run_in_threadpool(parse_pdf, pdf_path)
         except PdfParseError as exc:
-            # 整份失败：error_message 写统一提示，详细原因在 parser 日志
+            # 保留 Issue #6 分类提示（无法打开、无文字、空页过半、提取异常）
             await mark_document_failed(document_id, str(exc), **kwargs)
             return ProcessingResult(status="FAILED", reason=str(exc))
 

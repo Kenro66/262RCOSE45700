@@ -11,7 +11,8 @@ DATABASE_URL 未设置时默认连本机 compose Postgres（rag/p4rag）；
 GET /health（保留 Issue #4 行为）：每次请求真实连库探测——成功 200，
 连接/查询失败 503（日志有明确错误；连接任何情况都会释放，不会出现 500）。
 
-chunk_pages（Issue #11）/ embed_chunks（Issue #10）均为孙忠其提供的真实实现：
+chunk_pages 为随包附带的 Issue #11 集成依赖（尚未合入基准 main）；
+embed_chunks 为已合并 Issue #10 的真实实现：
   - chunk_pages：app/ingestion/chunker.py —— policy-structure-first 切分
     （BGE-M3 fast tokenizer，≤500 tokens/chunk、75 token 重叠、不跨页；
     依赖 transformers 包与 BAAI/bge-m3 tokenizer，首次运行自动下载，
@@ -34,9 +35,9 @@ from fastapi.responses import JSONResponse
 from app.adapters.embedding import embed_chunks  # Issue #10：BGE-M3 CPU（已合入 main）
 from app.api.documents import build_documents_router
 from app.database import DATABASE_URL, close_db, init_db
-from app.ingestion.chunker import chunk_pages  # Issue #11：policy-structure-first 切分（BGE-M3 tokenizer）
+from app.ingestion.chunker import chunk_pages  # 附带的 Issue #11 集成依赖，尚未合入本次基准 main
 
-# Issue #4 骨架行为保留：日誌初始化（与 TO_SUBMIT_4 的 main.py 一致）
+# Issue #4 骨架行为保留：日誌初始化（与已合并 Issue #4 的 main.py 一致）
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 logger = logging.getLogger("app.main")
@@ -45,7 +46,7 @@ CONNECT_TIMEOUT = 5  # 秒；数据库没启动时也让 /health 在几秒内给
 
 
 def _asyncpg_url(url: str) -> str:
-    """SQLAchemy 风格连接串 → asyncpg 可直接用的原始连接串
+    """SQLAlchemy 风格连接串 → asyncpg 可直接用的原始连接串
     （asyncpg.connect 只认 postgresql://，不认 postgresql+asyncpg://）。"""
     return url.replace("+asyncpg", "", 1)
 
@@ -60,9 +61,11 @@ def _db_host() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    yield
-    await close_db()
+    try:
+        await init_db()
+        yield
+    finally:
+        await close_db()
 
 
 def create_app(chunk_pages, embed_chunks) -> FastAPI:
