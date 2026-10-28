@@ -12,7 +12,6 @@ from app.contracts import ParsedPage
 
 PARSER_VERSION = "pymupdf-1"
 logger = logging.getLogger(__name__)
-UPLOAD_FAILURE_MESSAGE = "上传失败,请重试!"
 LANGUAGE_CODES = {
     Language.KOREAN: "ko",
     Language.CHINESE: "zh",
@@ -20,20 +19,20 @@ LANGUAGE_CODES = {
 }
 LANGUAGE_DETECTOR = LanguageDetectorBuilder.from_languages(*LANGUAGE_CODES.keys()).build()
 
-ERROR_CANNOT_OPEN = "文件无法打开或需要密码才能打开"
+ERROR_CANNOT_OPEN = "文件无法打开，请检查文件或密码后重试。"
 ERROR_NOT_PDF = "文件不是 PDF 文件"
-ERROR_NO_TEXT = "所有页面均无可提取文字"
-ERROR_TOO_MANY_EMPTY_PAGES = "无可提取文字的页数占总页数超过50%"
-ERROR_PAGE_EXTRACTION = "页面读取或文字提取报错"
+ERROR_NO_TEXT = "未检测到可提取文字，请上传包含文字的PDF文件。"
+ERROR_TOO_MANY_EMPTY_PAGES = "超过一半页面无法提取文字，请检查PDF文件后重新上传。"
+ERROR_PAGE_EXTRACTION = "上传失败,请重试!"
 
 
 class PdfParseError(ValueError):
     """整份解析失败；异常消息写入 error_message。"""
 
-def _failed(detail: str) -> NoReturn:
-    """详细原因只写日志，对外异常只包含统一提示。"""
-    logger.warning("PDF parsing failed: %s", detail)
-    raise PdfParseError(UPLOAD_FAILURE_MESSAGE) from None
+def _failed(message: str) -> NoReturn:
+    """异常消息记录至日志"""
+    logger.warning("%s", message)
+    raise PdfParseError(message) from None
 
 
 def detect_language(text: str) -> Literal["ko", "zh", "en"] | None:
@@ -99,8 +98,8 @@ def parse_pdf(pdf_path: str | Path) -> list[ParsedPage]:
             try:
                 page = document.load_page(page_index)
                 text = page.get_text("text").strip()
-            except Exception as exc:
-                _failed(f"{ERROR_PAGE_EXTRACTION}（第 {page_number} 页）：{exc}")
+            except Exception:
+                _failed(ERROR_PAGE_EXTRACTION)
 
             if not text:
                 empty_page_count += 1
@@ -130,7 +129,7 @@ def parse_pdf(pdf_path: str | Path) -> list[ParsedPage]:
         return pages
     except PdfParseError:
         raise
-    except Exception as exc:
-        _failed(f"{ERROR_PAGE_EXTRACTION}：{exc}")
+    except Exception:
+        _failed(ERROR_PAGE_EXTRACTION)
     finally:
         document.close()
