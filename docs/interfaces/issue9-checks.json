@@ -1,0 +1,192 @@
+{
+  "checked_date_kst": "2026-10-29",
+  "github_access": "read_only; no push, comments, PR creation, or remote merge",
+  "upstream_refs": {
+    "main": "07f60025489646a26c50f36559a014012db38f56",
+    "pr28": "d1adb4272222e8033f8b878d4cd218e579a2ff07",
+    "pr27": "d5aaf1421ca49508fdf1ef4bb93cbaec624ce19e",
+    "pr30": "18928267525cf1e0f40fd5a9351b6de7e27ff38f",
+    "pr29": "c45ca5674f69f99633bedc8a2d18da3562b15428"
+  },
+  "test_scope": "current recorded dependencies + Issue9 submitted files; not a standalone main overlay",
+  "python": "3.12.13",
+  "versions": {
+    "fastapi": "0.115.6",
+    "pydantic": "2.10.6",
+    "starlette": "0.41.3",
+    "httpx": "0.28.1",
+    "asyncpg": "0.30.0",
+    "sqlalchemy": "2.1.6",
+    "pgvector": "0.5.1",
+    "aiosqlite": "0.22.1",
+    "pytest": "9.2.0",
+    "pytest-asyncio": "1.4.1",
+    "PyMuPDF": "1.26.5",
+    "transformers": "4.57.6",
+    "tokenizers": "0.22.2",
+    "lingua-language-detector": "2.2.0"
+  },
+  "pytest": {
+    "command_from_repo_root": "python -m pytest -p no:cacheprovider backend/tests -q",
+    "fixture_preparation": "python backend/scripts/prepare_issue9_policy_fixtures.py --output-dir <local temporary directory>; set POLICY_FIXTURE_DIR to that directory",
+    "passed": 164,
+    "skipped": 1,
+    "subtests_passed": 86,
+    "failures": 0,
+    "errors": 0,
+    "skipped_cases": [
+      {
+        "class": "tests.test_e2e_postgres",
+        "test": "test_postgres_e2e",
+        "reason": "需要独立Postgres测试库：设置ISSUE9_TEST_DATABASE_URL和ISSUE9_ALLOW_DATABASE_RESET=1"
+      }
+    ]
+  },
+  "pdf_sources": [
+    {
+      "document_id": "DOC003",
+      "filename": "中华人民共和国海关进出境行李物品监管办法.pdf",
+      "sha256": "94d9381f108abaa6882a963546e16976c8b64a89612fb8335249058afbce1e06",
+      "pages": 10
+    },
+    {
+      "document_id": "DOC004",
+      "filename": "《进境物品关税、增值税、消费税征收办法》.pdf",
+      "sha256": "563492da88094ceeb10dcef7ccbd93eee8aea4aec740ee502bcfaad65cf68ad4",
+      "pages": 7
+    },
+    {
+      "document_id": "DOC005",
+      "filename": "여행자 및 승무원 휴대품 통관에 관한 고시.pdf",
+      "sha256": "4426ea7b713be1a3202238b9fcc171c5aee88992b752e44fc90a5ae81625639b",
+      "pages": 21
+    }
+  ],
+  "latest_chunk_counts": {
+    "DOC003": 52,
+    "DOC004": 29,
+    "DOC005": 111,
+    "total": 192
+  },
+  "frontend": {
+    "source": "unchanged PR29",
+    "typescript_no_emit": "passed",
+    "vite_build": "passed",
+    "real_loopback_http_client_c5_check": "passed with injected answer fixture; not real model or complete UI wiring"
+  },
+  "merge_checks": {
+    "main": {
+      "target": "07f60025489646a26c50f36559a014012db38f56",
+      "conflicts": false
+    },
+    "pr28": {
+      "target": "d1adb4272222e8033f8b878d4cd218e579a2ff07",
+      "conflicts": false
+    },
+    "pr27": {
+      "target": "d5aaf1421ca49508fdf1ef4bb93cbaec624ce19e",
+      "conflicts": false
+    },
+    "pr30": {
+      "target": "18928267525cf1e0f40fd5a9351b6de7e27ff38f",
+      "conflicts": false
+    },
+    "pr29": {
+      "target": "c45ca5674f69f99633bedc8a2d18da3562b15428",
+      "conflicts": false
+    },
+    "resolved_dependencies": {
+      "target": "5e1a12c7379c4cab591f72194b32f866036f87c2",
+      "conflicts": false
+    }
+  },
+  "merge_limit": "Current dependency commits are integrated locally first. No claim of standalone readiness on main or on future commits.",
+  "unchanged_upstream_paths": [
+    {
+      "ref": "d1adb4272222e8033f8b878d4cd218e579a2ff07",
+      "paths": [
+        "backend/app/database.py",
+        "backend/app/documents",
+        "backend/app/api/documents.py",
+        "backend/app/storage/models.py",
+        "backend/app/storage/schemas.py"
+      ]
+    },
+    {
+      "ref": "d5aaf1421ca49508fdf1ef4bb93cbaec624ce19e",
+      "paths": [
+        "backend/app/ingestion/chunker.py",
+        "backend/app/qa/retriever.py"
+      ]
+    },
+    {
+      "ref": "18928267525cf1e0f40fd5a9351b6de7e27ff38f",
+      "paths": [
+        "backend/app/contracts.py",
+        "backend/app/adapters",
+        "backend/app/qa/orchestrator.py",
+        "backend/app/qa/citation.py",
+        "backend/app/qa/prompts.py"
+      ]
+    },
+    {
+      "ref": "c45ca5674f69f99633bedc8a2d18da3562b15428",
+      "paths": [
+        "frontend"
+      ]
+    },
+    {
+      "ref": "07f60025489646a26c50f36559a014012db38f56",
+      "paths": [
+        "backend/app/ingestion/parser.py",
+        "storage/schema.sql"
+      ]
+    }
+  ],
+  "sha256_submitted_python_sources": {
+    "backend/app/api/chat.py": "cac1618f94b81d0a224f65311317a318508f60348ec7c5ae6bc443302312fcbc",
+    "backend/app/chat/__init__.py": "bfabf446ca5c2d3a9176ea986dd4c6c5e03e05601f583ea73f9062d40912ee1e",
+    "backend/app/chat/runtime.py": "a22ce29bdbb1881a08cd1101b12ae5ec17126bdcbb31af0cb7afc0c1c4ff0991",
+    "backend/app/chat/service.py": "a72590ec1ac96a68b49a804501db80001fe6e6d133409eebfdc25bd3f63c4c2a",
+    "backend/app/main.py": "5794df8c786c14dc170e011098c83234a1ffbcda98b7358dc8d5d5fcdb170582",
+    "backend/app/storage/repo.py": "5820bc8536d647711b1df93e23ed74beabad17ce0ee53562af31cab10b2f5a3f",
+    "backend/scripts/prepare_issue9_policy_fixtures.py": "20337edd71f479ad8f51e8c08237866a352f94aefbeceb131ab4bb1bc2bd0f7b",
+    "backend/scripts/validate_issue9.py": "22ced4935ccc753db57552d0bc700ecd7d434d33bddd9f2a4acd262f41977b9a",
+    "backend/tests/conftest.py": "c4ead2ecd76e14a609c95cff23aaf7678f8eda6753d2d580eea9fcbf42326a46",
+    "backend/tests/test_api_documents.py": "0f6d4a7864c1e9d56dc26521d80525802374c54e853b3bab367f9634b21553a1",
+    "backend/tests/test_chat.py": "e37210b9b5f41fdda61e86caed72534817b4b0f3f339d9daf68051aeff7eb286",
+    "backend/tests/test_chat_regressions.py": "7195399373b5a4bec023d17e6179163341561f748d7c40b57306e080825ef03f",
+    "backend/tests/test_e2e_postgres.py": "c3fe2cce12b434062c22b29a1c0a460190b49a9ad191b1b7b19ae07156f13b51",
+    "backend/tests/test_health.py": "4ed15bd5792649d8ed4c8be7052a58ffe3c8eb8ee200d00c69b2dd81e2658091",
+    "backend/tests/test_issue9_smoke_script.py": "02fa7bd87fc3dd594073cad897236c9efa99f26fd1e57039b9072b590ab03527",
+    "backend/tests/test_pipeline.py": "cf6a9dbd027e6d182fe6563df11d4e51c5f1b58bb4352ca54d8a98e7ed6a4cfd",
+    "backend/tests/test_storage_repo.py": "db0062e95c7ed029c3a42f329ebde759b7c162912074d6988a72e857e3858968"
+  },
+  "pending_business_acceptance": {
+    "real_BGE_M3_and_LLM": "not run; local environment unavailable",
+    "real_PostgreSQL_pgvector": "not run",
+    "team_member_confirmation": "not provided; do not fabricate",
+    "issue_closure": "Refs #9 only"
+  },
+  "original_record_is_historical": true,
+  "latest_acceptance": {
+    "checked_date_kst": "2026-10-29",
+    "main": "579c252b26e78c08484950460a21ffbb88f42c5b",
+    "pr28": "8d6eb19daea096fda15eca4bb8337e34ec5a3d07",
+    "pr30": "2c0f677721f962401c7ae74494237fc5077a722d",
+    "pr27_and_pr28_merged": true,
+    "passed": 164,
+    "skipped": 1,
+    "subtests_passed": 86,
+    "failures": 0,
+    "errors": 0,
+    "excluded": [
+      "backend/tests/test_issue7.py"
+    ],
+    "exclusion_reason": "Requires a separate explicit PostgreSQL test database; collection errors without ISSUE7_TEST_DATABASE_URL. Run in a separate process.",
+    "dependency": "PR30 generation/citation modules required; not included in this Issue9 increment",
+    "real_model_postgres_acceptance": "not run",
+    "frontend_real_api_wiring": "not implemented in PR29",
+    "member_confirmations": "not provided"
+  }
+}

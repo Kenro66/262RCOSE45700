@@ -169,6 +169,22 @@ async def list_documents(
         return [to_document_record(document) for document in documents]
 
 
+async def has_ready_documents(
+    session_factory: SessionMaker = SessionFactory,
+) -> bool:
+    """是否存在至少一份 READY 文件（Issue #9 POST /api/chat 前置检查）。
+
+    PROCESSING / FAILED 不算。
+    """
+    async with session_factory() as session:
+        count = await session.scalar(
+            select(func.count())
+            .select_from(Document)
+            .where(Document.status == DocumentStatus.READY.value)
+        )
+        return (count or 0) > 0
+
+
 async def get_documents(
     ids: list[str],
     session_factory: SessionMaker = SessionFactory,
