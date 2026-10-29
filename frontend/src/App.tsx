@@ -6,9 +6,7 @@ import {
   uploadDocument,
   deleteDocument,
   sendChatMessage,
-  createMockSystemError,
   getApiErrorData,
-  isSystemErrorResponse,
 } from './api/client'
 
 type Page = 'documents' | 'chat'
@@ -42,11 +40,6 @@ type C5ChatResponse = {
   message: string | null
 }
 
-type RecommendedScenario = {
-  question: string
-  status: ResponseStatus
-}
-
  type DocumentItem = {
   id: number
   documentId?: string
@@ -55,7 +48,6 @@ type RecommendedScenario = {
   status: Status
   size: string
   pages: number | null
-  country: '中国' | '韩国'
   errorMessage?: string
 }
 
@@ -97,8 +89,7 @@ type C1Document = {
 function convertC1Document(
   doc: C1Document,
   id: number,
-  size: string,
-  country: '中国' | '韩国'
+  size: string
 ): DocumentItem {
   return {
     id,
@@ -113,81 +104,9 @@ function convertC1Document(
           : 'Failed',
     size,
     pages: doc.page_count,
-    country,
     errorMessage: doc.error_message ?? undefined
   }
 }
-
-// C1 模拟文件列表：按照 Issue #8 的后端 JSON 示例
-// 包含 FAILED、PROCESSING、READY 三种状态
-const mockC1Documents: C1Document[] = [
-  {
-    document_id: 'doc_003',
-    filename: '扫描件.pdf',
-    status: 'FAILED',
-    error_message: '暂不支持扫描型PDF',
-    page_count: null,
-    uploaded_at: '2026-10-27T10:30:00+09:00',
-  },
-  {
-    document_id: 'doc_002',
-    filename: '旅客申报指南.pdf',
-    status: 'PROCESSING',
-    error_message: null,
-    page_count: null,
-    uploaded_at: '2026-10-27T10:20:00+09:00',
-  },
-  {
-    document_id: 'doc_001',
-    filename: '携带物品政策.pdf',
-    status: 'READY',
-    error_message: null,
-    page_count: 12,
-    uploaded_at: '2026-10-27T10:00:00+09:00',
-  },
-]
-
-const initialDocuments: DocumentItem[] = mockC1Documents.map((doc, index) =>
-  convertC1Document(
-    doc,
-    index + 1,
-    ['2.8 MB', '4.1 MB', '1.6 MB', '4.7 MB'][index],
-    index === 1 ? '中国' : '韩国'
-  )
-)
-
-const citations: Citation[] = [
-  {
-    id: 1,
-    document: '관세법 시행규칙',
-    reference: '제48조 ③',
-    text: '"담배 · 궐련 · 200개비" [별도면세범위 표]',
-  },
-]
-
-const initialMessages: Message[] = [
-  {
-    id: 1,
-    role: 'user',
-    body: '중국에서 한국으로 입국하는 성인 여행객입니다. 일반 담배 2보루(400개비)를 가지고 있는데, 모두 면세가 되나요?',
-  },
-  {
-    id: 2,
-    role: 'assistant',
-    body: '아니요. 한국 입국 시 일반 담배의 면세한도는 여행자 1명당 200개비(1보루)입니다. 400개비는 면세한도를 초과하므로 세관에 신고해야 합니다. 실제 세금은 적용 조건에 따라 확인이 필요합니다.',
-    citations: [1],
-    citationDetails: [
-      {
-        evidence_id: 'E1',
-        filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-        page: 27,
-        quote: '담배 · 궐련 · 200개비',
-      },
-    ],
-    kind: 'NORMAL',
-    responseStatus: 'ANSWER',
-  },
-]
 
 const enableDevelopmentScenarioControls = false
 
@@ -220,100 +139,15 @@ function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
   }
 }
 
-// Generate a mock chat response using the C5 API response format.
-function createMockChatResponse(
-  question: string,
-  readyDocumentCount: number
-): ChatResponse {
-  let mockResponse: C5ChatResponse
-
-  if (readyDocumentCount === 0) {
-    mockResponse = {
-      status: 'NO_READY_DOCUMENTS',
-      answer: null,
-      citations: [],
-      message: '현재 사용 가능한 정책 문서가 없습니다.',
-    }
-  } else if (
-    /(시스템 오류|서버 오류|에러|system error|server error|系统错误|服务器错误)/i.test(question)
-  ) {
-    mockResponse = {
-      status: 'SYSTEM_ERROR',
-      answer: null,
-      citations: [],
-      message: '일시적인 시스템 오류가 발생했습니다.',
-    }
-  } else if (
-    /(담배|궐련|香烟|卷烟|cigarette|tobacco)/i.test(question)
-  ) {
-    let answer =
-      '根据已上传的演示文件，韩国入境时普通香烟的免税限额为每名旅客 200 支。携带 400 支超过免税限额，需要向海关申报。实际税额仍需根据适用条件确认。'
-
-    if (/[가-힣]/.test(question)) {
-      answer =
-        '아니요. 한국 입국 시 일반 담배의 면세한도는 여행자 1명당 200개비(1보루)입니다. 400개비는 면세한도를 초과하므로 세관에 신고해야 합니다. 실제 세금은 적용 조건에 따라 확인이 필요합니다.'
-    }
-
-    if (/^[\x00-\x7F\s?.,'!-]+$/.test(question)) {
-      answer =
-        'No. The duty-free allowance for regular cigarettes when entering Korea is 200 cigarettes per traveler. Carrying 400 exceeds the allowance and must be declared to customs.'
-    }
-
-    mockResponse = {
-      status: 'ANSWERED',
-      answer,
-      citations: [
-        {
-          evidence_id: 'E1',
-          filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-          page: 27,
-          quote: '담배 · 궐련 · 200개비',
-        },
-      ],
-      message: null,
-    }
-  } else {
-    mockResponse = {
-      status: 'INSUFFICIENT_EVIDENCE',
-      answer: null,
-      citations: [],
-      message: '현재 정책 문서에서 충분한 근거를 찾지 못했습니다.',
-    }
+function getErrorMessage(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const value = data as Record<string, unknown>
+  for (const key of ['detail', 'answer', 'message']) {
+    const text = value[key]
+    if (typeof text === 'string' && text.trim()) return text.trim()
   }
-
-  return convertC5ChatResponse(mockResponse)
+  return undefined
 }
-
-const initialConversations: Conversation[] = [
-  { id: 101, title: '한국 입국 시 담배 면세한도', updatedAt: '2026年10月16日', messages: initialMessages },
-  {
-    id: 102,
-    title: '중국 입국 시 주류 면세한도',
-    updatedAt: '2026年10月15日',
-    messages: [
-      { id: 21, role: 'user', body: '한국에서 중국으로 입국할 때 술은 몇 병까지 면세로 반입할 수 있나요?' },
-      { id: 22, role: 'assistant', body: '', responseStatus: 'INSUFFICIENT_EVIDENCE' },
-    ],
-  },
-  {
-    id: 103,
-    title: '상비약 반입 신고 여부',
-    updatedAt: '2026年10月14日',
-    messages: [
-      { id: 31, role: 'user', body: '감기약 같은 상비약을 가지고 입국하면 신고해야 하나요?' },
-      { id: 32, role: 'assistant', body: '', responseStatus: 'SYSTEM_ERROR', request: '감기약 같은 상비약을 가지고 입국하면 신고해야 하나요?' },
-    ],
-  },
-  {
-    id: 104,
-    title: '육류 가공품 반입 가능 여부',
-    updatedAt: '2026年10月13日',
-    messages: [
-      { id: 41, role: 'user', body: '육포 같은 육류 가공품을 한국에 가져올 수 있나요?' },
-      { id: 42, role: 'assistant', body: '', responseStatus: 'NO_READY_DOCUMENTS' },
-    ],
-  },
-]
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const paths: Record<string, React.ReactNode> = {
@@ -370,9 +204,7 @@ function LanguageSwitcher() {
   )
 }
 
-function localizeCountry(country: string, t: (key: TranslationKey, variables?: Record<string, string | number>) => string) {
-  return country === '中国' ? t('country.china') : country === '韩国' ? t('country.korea') : country
-}
+
 
 function Sidebar({
   page,
@@ -521,7 +353,6 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
       <StatusBadge status={document.status}/>
       <div className="metadata">
         <div><span>{t('details.fileSize')}</span><strong>{document.size}</strong></div>
-        <div><span>{t('details.country')}</span><strong>{localizeCountry(document.country, t)}</strong></div>
         <div><span>{t('details.pages')}</span><strong>{document.pages ? t('details.pageUnit', { count: document.pages }) : '—'}</strong></div>
       </div>
       {document.status === 'Ready' && <div className="process-summary"><div className="summary-icon"><Icon name="check" size={16}/></div><div><strong>{t('details.readyTitle')}</strong><p>{t('details.readyBody')}</p></div></div>}
@@ -573,8 +404,7 @@ function DocumentsPage({
     (hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0,
     0
   ),
-  `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-  '韩国'
+  `${(file.size / 1024 / 1024).toFixed(1)} MB`
 )
 
     setDocuments((current) => [item, ...current])
@@ -582,13 +412,7 @@ setSelected(item)
 } catch (error) {
   console.error('Failed to upload document:', error)
  const errorData = getApiErrorData(error)
-const errorMessage =
-  errorData !== null &&
-  typeof errorData === 'object' &&
-  'message' in errorData &&
-  typeof errorData.message === 'string'
-    ? errorData.message
-    : 'PDF 上传失败，请检查后端服务后重试。'
+const errorMessage = getErrorMessage(errorData) ?? 'PDF 上传失败，请检查后端服务后重试。'
 
 alert(errorMessage)
 } finally {
@@ -725,7 +549,7 @@ return (
               <div className="table-head"><span>{t('documents.columnName')}</span><span>{t('documents.columnStatus')}</span><span/></div>
               {shownDocuments.map((document) => (
                 <div className={`table-row ${selected?.id === document.id ? 'selected' : ''}`} key={document.id} onClick={() => setSelected(document)}>
-                  <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.name}</strong><small>{document.size} · {localizeCountry(document.country, t)}</small></div></div>
+                  <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.name}</strong><small>{document.size}</small></div></div>
                   <StatusBadge status={document.status}/>
                   <Button variant="icon" className="delete-button" aria-label={t('documents.deleteAria', { name: document.name })} onClick={(event) => { event.stopPropagation(); setDeleting(document) }}><Icon name="trash" size={17}/></Button>
                 </div>
@@ -759,7 +583,7 @@ function CitationPanel({
   onSelect,
   responseStatus,
   onOpenDocuments,
-  items = citations,
+  items = [],
 }: {
   selectedId: number
   onSelect: (id: number) => void
@@ -914,24 +738,26 @@ function ChatPage({
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<ChatMode>('NORMAL')
   const [selectedCitation, setSelectedCitation] = useState(1)
+  const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const messages = conversation?.messages ?? []
-  const exampleQuestions: RecommendedScenario[] = [
-    { question: t('chat.example1'), status: 'ANSWER' },
-    { question: t('chat.example2'), status: 'INSUFFICIENT_EVIDENCE' },
-    { question: t('chat.example3'), status: 'NO_READY_DOCUMENTS' },
-    { question: t('chat.example4'), status: 'SYSTEM_ERROR' },
+  const exampleQuestions = [
+    t('chat.example1'),
+    t('chat.example2'),
+    t('chat.example3'),
+    t('chat.example4'),
   ]
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
-  const citationPanelStatus = latestAssistantMessage?.responseStatus
-    ?? (latestAssistantMessage?.citations?.length ? 'ANSWER' : undefined)
+  const citationMessage = messages.find((message) => message.id === citationMessageId && message.role === 'assistant') ?? latestAssistantMessage
+  const citationPanelStatus = citationMessage?.responseStatus
+    ?? (citationMessage?.citations?.length ? 'ANSWER' : undefined)
     const currentCitations: Citation[] =
-  latestAssistantMessage?.citationDetails?.map((item, index) => ({
+  citationMessage?.citationDetails?.map((item, index) => ({
     id: Number(item.evidence_id.replace(/^E/i, '')) || index + 1,
     document: item.filename,
     reference: `PDF p.${item.page}`,
     text: item.quote,
-  })) ?? citations     //Convert C5 citation details into the CitationPanel display format.
+  })) ?? []
   
   const exceptionContent: Record<Exclude<ChatMode, 'NORMAL'>, { title: string; body: string; action: string; prompt: string }> = {
     CLARIFICATION: {
@@ -983,7 +809,7 @@ function ChatPage({
     if (!conversation) return
     setMode(nextMode)
     if (nextMode === 'NORMAL') {
-      onSetMessages(conversation.id, initialMessages)
+      onSetMessages(conversation.id, [])
       return
     }
     onSetMessages(conversation.id, [
@@ -992,28 +818,22 @@ function ChatPage({
     ])
   }
 
-  const requestMockResponse = async (
+  const requestResponse = async (
   conversationId: number,
-  question: string,
-  predefinedResponse?: ChatResponse
+  question: string
 ) => {
   setLoading(true)
+  setCitationMessageId(null)
+  setSelectedCitation(1)
 
   try {
-    let response: ChatResponse
-
-    if (predefinedResponse) {
-      // 暂时保留演示场景
-      response = predefinedResponse
-    } else {
-      // 普通提问调用真实后端
-      const result = await sendChatMessage(question)
-      response = convertC5ChatResponse(result)
-    }
+    const result = await sendChatMessage(question)
+    const response = convertC5ChatResponse(result)
 
     const body = response.status === 'ANSWER'
       ? response.answer ?? ''
-      : (automaticResponseContent[response.status] ?? automaticResponseContent.SYSTEM_ERROR).body
+      : response.answer?.trim() || response.message?.trim()
+        || (automaticResponseContent[response.status] ?? automaticResponseContent.SYSTEM_ERROR).body
 
     onSetMessages(conversationId, (current) => [
       ...current,
@@ -1035,7 +855,7 @@ function ChatPage({
       {
         id: Date.now(),
         role: 'assistant',
-        body: automaticResponseContent.SYSTEM_ERROR.body,
+        body: getErrorMessage(getApiErrorData(error)) ?? automaticResponseContent.SYSTEM_ERROR.body,
         responseStatus: 'SYSTEM_ERROR',
         request: question,
       },
@@ -1045,39 +865,18 @@ function ChatPage({
   }
 }
 
-  const submitQuestion = (question: string, predefinedResponse?: ChatResponse) => {
+  const submitQuestion = (question: string) => {
     const trimmed = question.trim()
     if (!trimmed || loading || !conversation) return
     const conversationId = conversation.id
     onSetMessages(conversationId, (current) => [...current, { id: Date.now(), role: 'user', body: trimmed }])
     setInput('')
-    requestMockResponse(conversationId, trimmed, predefinedResponse)
+    requestResponse(conversationId, trimmed)
   }
 const sendMessage = () => submitQuestion(input)
-const submitRecommendedScenario = (scenario: RecommendedScenario) => {
-  
-  const response: ChatResponse = scenario.status === 'ANSWER'
-    ? {
-        status: 'ANSWER',
-        answer: t('response.tobaccoAnswer'),
-        citations: [1],
-        citationDetails: [
-          {
-            evidence_id: 'E1',
-            filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-            page: 27,
-            quote: '담배 · 궐련 · 200개비',
-          },
-        ],
-      }
-    : { status: scenario.status }
-
-  submitQuestion(scenario.question, response)
-}
-
   const retryRequest = (question?: string) => {
   if (!conversation || !question || loading) return
-  requestMockResponse(conversation.id, question)
+  requestResponse(conversation.id, question)
 }
 
   return (
@@ -1102,15 +901,14 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
                 <div className="welcome-mark"><Icon name="spark" size={23}/></div>
                 <h2>{t('chat.welcomeTitle')}</h2>
                 <p>{t('chat.welcomeBody')}</p>
-                {readyDocumentCount > 0 ? (
-                  <div className="example-questions">
-                    {exampleQuestions.map((item) => (
-                      <Button variant="ghost" className="example-question" key={item.question} onClick={() => submitRecommendedScenario(item)}>
-                        <span>{item.question}</span><Icon name="chevron" size={14}/>
+                <div className="example-questions">
+                    {exampleQuestions.map((question) => (
+                      <Button variant="ghost" className="example-question" key={question} onClick={() => submitQuestion(question)} disabled={loading}>
+                        <span>{question}</span><Icon name="chevron" size={14}/>
                       </Button>
                     ))}
-                  </div>
-                ) : (
+                </div>
+                {readyDocumentCount === 0 && (
                   <div className="no-documents-notice">
                     <span className="notice-icon"><Icon name="files" size={18}/></span>
                     <div><strong>{t('chat.noDocumentsTitle')}</strong><p>{t('chat.noDocumentsBody')}</p></div>
@@ -1135,8 +933,8 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
                     <div className="message-author">{message.role === 'assistant' ? 'Policy AI' : t('chat.consultant')}{message.role === 'assistant' && message.responseStatus !== 'NO_READY_DOCUMENTS' && message.responseStatus !== 'SYSTEM_ERROR' && <span>{t('chat.basedOnDocuments')}</span>}</div>
                     <div className={`message-bubble ${renderedState && stateCode ? `exception ${stateCode.toLowerCase()}` : ''}`}>
                       {renderedState && stateCode && <div className="exception-title"><span className="exception-symbol"><Icon name={stateCode === 'SYSTEM_ERROR' ? 'warning' : 'info'} size={17}/></span><strong>{renderedState.title}</strong><span className="exception-code">{stateCode}</span></div>}
-                      <div className="message-text">{renderedState ? renderedState.body : message.body}</div>
-                      {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={setSelectedCitation} key={id}/>)}</div>}
+                      <div className="message-text">{message.body || renderedState?.body || ''}</div>
+                      {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={(citationId) => { setCitationMessageId(message.id); setSelectedCitation(citationId) }} key={id}/>)}</div>}
                       {renderedState && <div className="exception-action">{renderedState.action}</div>}
                       {stateCode === 'NO_READY_DOCUMENTS' && <Button variant="default" className="retry-button" onClick={onOpenDocuments}><Icon name="files" size={16}/>{t('chat.goDocuments')}</Button>}
                       {stateCode === 'SYSTEM_ERROR' && <Button variant="default" className="retry-button" onClick={() => responseState ? retryRequest(message.request) : selectMode('NORMAL')}><Icon name="retry" size={16}/>{t('chat.retry')}</Button>}
@@ -1174,7 +972,15 @@ export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [documentsError, setDocumentsError] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(2)
+  const documentsVersion = useRef(0)
+  const documentsRequest = useRef(0)
+  const updateDocuments: typeof setDocuments = (update) => {
+    documentsVersion.current += 1
+    setDocuments(update)
+  }
   const loadDocuments = async () => {
+  const request = ++documentsRequest.current
+  const version = documentsVersion.current
   try {
     const apiDocuments = await getDocuments()
 
@@ -1185,14 +991,15 @@ export default function App() {
       (hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0,
       0
     ),
-    '-',
-    '韩国'
+    '-'
   )
 )
 
+    if (request !== documentsRequest.current || version !== documentsVersion.current) return
     setDocuments(converted)
     setDocumentsError(false)
   } catch (error) {
+    if (request !== documentsRequest.current || version !== documentsVersion.current) return
     console.error('Failed to load documents:', error)
     setDocumentsError(true)
   }
@@ -1204,10 +1011,10 @@ useEffect(() => {
     void loadDocuments()
   }, 3000)
 
-  return () => window.clearInterval(timer)
+  return () => { window.clearInterval(timer); documentsRequest.current += 1 }
 }, [])
-  const [conversations, setConversations] = useState<Conversation[]>(initialConversations)
-  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(initialConversations[0].id)
+  const [conversations, setConversations] = useState<Conversation[]>([{ id: 1, title: '', updatedAt: '', messages: [], isUntitled: true }])
+  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(1)
   const selected = useMemo(() => documents.find((document) => document.id === selectedId) ?? null, [documents, selectedId])
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null, [conversations, selectedConversationId])
 
@@ -1254,7 +1061,7 @@ useEffect(() => {
         <DocumentsPage
           documentsError={documentsError}
           documents={documents}
-          setDocuments={setDocuments}
+          setDocuments={updateDocuments}
           selected={selected}
           setSelected={(document) => setSelectedId(document?.id ?? null)}
         />
