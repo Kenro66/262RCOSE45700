@@ -11,6 +11,13 @@ from ..contracts import Chunk, ParsedPage
 MAX_TOKENS = 500
 OVERLAP = 75
 _HEADING = re.compile(r"(?m)^[ \t\u3000]*(第\s*[一二三四五六七八九十百千零〇两0-9]+\s*[编章节条]|제\s*\d+\s*(?:장|절|조)(?:의\s*\d+)?(?=[（( \t]|$))(?:[（(]([^\n）)]{1,60})[）)])?")
+_CHINESE_REFERENCE = re.compile(
+    r"[ \t\u3000]*(?:规定(?:的|中|[，,])|所(?:列|述|称|指|定|规定|确定)|的|中|"
+    r"第\s*[一二三四五六七八九十百千零〇两0-9]+\s*[款项]|"
+    r"(?:至|到|以及|或者|及|和|与|、)[ \t\u3000]*第)"
+)
+_PAGE_MARKER = re.compile(r"(?P<mark>[-—–－])\s*(?P<number>\d{1,4})\s*(?P=mark)")
+_AGENCIES = {"海关总署规章", "海关总署发布"}
 _ITEM = re.compile(r"(?m)^[ \t\u3000]*(?:[（(][一二三四五六七八九十百千0-9]+[）)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]|\d{1,3}[.．、)](?!\d)|[가나다라마바사아자차카타파하][.．])")
 _EXCEPTION = re.compile(r"\s*(?:但|除外|다만|제외한다|단[,， ])")
 _BREAKS = [_ITEM, re.compile(r"\n[ \t]*\n"), re.compile(r"[。！？；;!?]|(?<!\d)\.(?=\s|$)"), re.compile(r"\n"), re.compile(r"[ \t]+")]
@@ -50,14 +57,18 @@ def _edge_indices(lines):
     return set(nonempty[:4] + nonempty[-3:])
 
 
+def _headings(text: str):
+    # Wrapped references such as 第九条规定的... continue the enclosing article.
+    return [match for match in _HEADING.finditer(text)
+            if not (match.group(1).startswith("第")
+                    and _CHINESE_REFERENCE.match(text, match.end(1)))]
+
+
 def _prepare(pages: list[ParsedPage], audit: list[dict]) -> list[tuple[ParsedPage, str]]:
     repeated = defaultdict(Counter)
-    numbered_pages = Counter()
     for page in pages:
         lines = page.text.splitlines()
         candidates = {lines[i].strip() for i in _edge_indices(lines)}
-        if str(page.page_number) in candidates:
-            numbered_pages[page.document_id] += 1
         for line in candidates:
             repeated[page.document_id][line] += 1
     prepared = []
@@ -65,19 +76,27 @@ def _prepare(pages: list[ParsedPage], audit: list[dict]) -> list[tuple[ParsedPag
     for page in pages:
         lines = page.text.splitlines()
         edges = _edge_indices(lines)
+        nonempty = [i for i, line in enumerate(lines) if line.strip()]
+        boundaries = {nonempty[0], nonempty[-1]} if nonempty else set()
         kept = []
         for i, line in enumerate(lines):
             stripped = line.strip()
-            number = re.fullmatch(r"[-—–－]?\s*(\d{1,4})\s*[-—–－]?", stripped)
+            number = _PAGE_MARKER.fullmatch(stripped)
             korean_header = re.fullmatch(r"법제처\s+(\d+)\s+국가법령정보센터", stripped)
-            agency = stripped in {"海关总署规章", "海关总署发布"}
+            agency = stripped in _AGENCIES
             title = (re.match(r"中华人民共和国|进境物品|여행자|관세법", stripped)
                      and re.search(r"办法|规定|公告|告示|고시|시행규칙", stripped)
                      and not _HEADING.match(stripped) and not re.search(r"[。；;：:]|\d", stripped)
                      and len(stripped) <= 100)
             repeated_edge = repeated[page.document_id][stripped] >= 2
-            remove = i in edges and ((number and int(number[1]) == page.page_number
-                                      and (not stripped.isdigit() or numbered_pages[page.document_id] >= 2))
+            # A bare number may be a legal quantity even when it equals the page.
+            # Require paired page-marker punctuation plus an actual boundary or known furniture.
+            number_context = i in boundaries or any(
+                0 <= j < len(lines) and lines[j].strip() in _AGENCIES
+                and repeated[page.document_id][lines[j].strip()] >= 2
+                for j in (i - 1, i + 1)
+            )
+            remove = i in edges and ((number and int(number["number"]) == page.page_number and number_context)
                                      or (korean_header and int(korean_header[1]) == page.page_number)
                                      or (agency and repeated_edge))
             title_key = (page.document_id, stripped)
@@ -183,7 +202,7 @@ def _chunk_with_audit(pages: list[ParsedPage]) -> tuple[list[Chunk], list[dict]]
     for page, text in prepared:
         if not text.strip():
             continue
-        headings = list(_HEADING.finditer(text))
+        headings = _headings(text)
         points = sorted({0, len(text), *(match.start() for match in headings)})
         title, previous_page = previous.get(page.document_id, (None, None))
         if title and (not headings or text[:headings[0].start()].strip()):
