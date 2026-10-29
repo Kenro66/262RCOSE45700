@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from './i18n/I18nContext'
 import type { TranslationKey } from './i18n/zh-CN'
-
 import {
+  getDocuments,
+  uploadDocument,
+  deleteDocument,
+  sendChatMessage,
   createMockSystemError,
   getApiErrorData,
   isSystemErrorResponse,
 } from './api/client'
+
 type Page = 'documents' | 'chat'
 type Status = 'Ready' | 'Processing' | 'Failed'
 type ChatMode = 'NORMAL' | 'CLARIFICATION' | 'INSUFFICIENT_EVIDENCE' | 'CONFLICTING_EVIDENCE' | 'SYSTEM_ERROR'
@@ -453,22 +457,39 @@ function Sidebar({
   )
 }
 
-function UploadZone({ onUpload, compact = false }: { onUpload: () => void; compact?: boolean }) {
+function UploadZone({ onUpload, compact = false }: { onUpload: (file: File) => void; compact?: boolean }) {
   const { t } = useI18n()
   const [dragging, setDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   return (
     <div
       className={`upload-zone ${compact ? 'compact' : ''} ${dragging ? 'dragging' : ''}`}
       onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(event) => { event.preventDefault(); setDragging(false); onUpload() }}
+     onDrop={(event) => {
+  event.preventDefault()
+  setDragging(false)
+  const file = event.dataTransfer.files[0]
+  if (file) onUpload(file)
+}}
     >
+    <input
+  ref={fileInputRef}
+  type="file"
+  accept=".pdf,application/pdf"
+  style={{ display: 'none' }}
+  onChange={(event) => {
+    const file = event.target.files?.[0]
+    if (file) onUpload(file)
+    event.target.value = ''
+  }}
+/>
       <div className="upload-icon"><Icon name="upload" size={compact ? 19 : 24}/></div>
       <div>
         <div className="upload-title">{compact ? t('upload.compact') : t('upload.title')}</div>
         {!compact && <div className="upload-hint">{t('upload.hint')}</div>}
       </div>
-      <Button variant={compact ? 'ghost' : 'default'} onClick={onUpload}>{compact ? t('upload.select') : t('upload.browse')}</Button>
+      <Button variant={compact ? 'ghost' : 'default'} onClick={() => fileInputRef.current?.click()}>{compact ? t('upload.select') : t('upload.browse')}</Button>
     </div>
   )
 }
@@ -508,11 +529,13 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
 }
 
 function DocumentsPage({
+  documentsError,
   documents,
   setDocuments,
   selected,
   setSelected,
 }: {
+  documentsError: boolean
   documents: DocumentItem[]
   setDocuments: React.Dispatch<React.SetStateAction<DocumentItem[]>>
   selected: DocumentItem | null
@@ -523,44 +546,147 @@ function DocumentsPage({
   const [deleting, setDeleting] = useState<DocumentItem | null>(null)
   const [search, setSearch] = useState('')
   const [uploading, setUploading] = useState(false)
+  const headerFileInputRef = useRef<HTMLInputElement>(null)
   const shownDocuments = emptyView ? [] : documents.filter((document) => document.name.toLowerCase().includes(search.toLowerCase()))
 
-  const simulateUpload = () => {
-    setEmptyView(false)
-    setUploading(true)
-    const item: DocumentItem = { id: Date.now(), name: '여행자휴대품_통관안내_추가자료.pdf', date: '刚刚', status: 'Processing', size: '1.9 MB', pages: null, country: '中国' }
+  const simulateUpload = async (file: File) => {
+  // 上传前检查文件格式
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    alert('仅支持上传 PDF 文件。')
+    return
+  }
+
+  setEmptyView(false)
+  setUploading(true)
+
+  try {
+    // 把真正的 PDF 发送给后端
+    const result = await uploadDocument(file)
+
+    // 根据后端返回的数据创建文件记录
+    const item = convertC1Document(
+  result,
+  Array.from(result.document_id).reduce(
+    (hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0,
+    0
+  ),
+  `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+  '韩国'
+)
+
     setDocuments((current) => [item, ...current])
     setSelected(item)
-    window.setTimeout(() => {
-      setDocuments((current) => current.map((document) => document.id === item.id ? { ...document, status: 'Ready', pages: 18 } : document))
-      setSelected({ ...item, status: 'Ready', pages: 18 })
-      setUploading(false)
-    }, 2200)
+  } catch (error) {
+  console.error('Failed to load documents:', error)
+  }
+}
+
+ const confirmDelete = async () => {
+  if (!deleting) return
+
+  if (!deleting.documentId) {
+    alert('该文件没有后端 document_id，无法执行真实删除。')
+    return
   }
 
-  const confirmDelete = () => {
-    if (!deleting) return
-    setDocuments((current) => current.filter((document) => document.id !== deleting.id))
-    if (selected?.id === deleting.id) setSelected(null)
+  try {
+    await deleteDocument(deleting.documentId)
+
+    setDocuments((current) =>
+      current.filter((document) => document.id !== deleting.id)
+    )
+
+    if (selected?.id === deleting.id) {
+      setSelected(null)
+    }
+
     setDeleting(null)
+  } catch (error) {
+    console.error('Failed to delete document:', error)
+    alert('删除失败，请检查后端服务。')
   }
-
-  return (
+}
+return (
     <>
       <main className="main-column">
         <header className="page-header">
-          <div><div className="title-row"><h1>Documents</h1><span className="doc-total">{t('documents.count', { count: documents.length })}</span></div><p>{t('documents.subtitle')}</p></div>
-          <div className="header-actions"><Button variant="primary" onClick={simulateUpload}><Icon name="upload"/><span>{t('documents.uploadButton')}</span></Button><LanguageSwitcher/></div>
-        </header>
-        <Disclaimer showDemoTag={false}/>
-        <div className="demo-switch">
-          <span>{t('documents.viewState')}</span>
-          <div className="segmented">
-            <Button variant="ghost" className={!emptyView ? 'selected' : ''} onClick={() => setEmptyView(false)}>{t('documents.management')}</Button>
-            <Button variant="ghost" className={emptyView ? 'selected' : ''} onClick={() => { setEmptyView(true); setSelected(null) }}>{t('documents.emptyView')}</Button>
-          </div>
-          <span className="story-ref">{emptyView ? 'S1 업로드/처리 (MVP) · S6 최신성 안내 (MVP)' : 'S1 처리 상태 (MVP) · S5 문서 목록 · 삭제 (MVP)'}</span>
-        </div>
+          <input
+  ref={headerFileInputRef}
+  type="file"
+  accept=".pdf,application/pdf"
+  style={{ display: 'none' }}
+  onChange={(event) => {
+    const file = event.target.files?.[0]
+    if (file) void simulateUpload(file)
+    event.target.value = ''
+  }}
+/>
+          
+<div>
+  <div className="title-row">
+    <h1>Documents</h1>
+    <span className="doc-total">
+      {t('documents.count', { count: documents.length })}
+    </span>
+  </div>
+  <p>{t('documents.subtitle')}</p>
+</div>
+
+<div className="header-actions">
+  <Button
+    variant="primary"
+    onClick={() => headerFileInputRef.current?.click()}
+  >
+    <Icon name="upload"/>
+    <span>{t('documents.uploadButton')}</span>
+  </Button>
+  <LanguageSwitcher/>
+</div>
+</header>
+
+<Disclaimer showDemoTag={false}/>
+
+{documentsError && (
+  <div role="alert" className="process-summary failed">
+    <Icon name="warning" size={16}/>
+    <div>
+      <strong>无法连接文档服务</strong>
+      <p>暂时无法获取真实文件列表，请检查后端服务后重试。</p>
+    </div>
+  </div>
+)}
+
+<div className="demo-switch">
+  <span>{t('documents.viewState')}</span>
+
+  <div className="segmented">
+    <Button
+      variant="ghost"
+      className={!emptyView ? 'selected' : ''}
+      onClick={() => setEmptyView(false)}
+    >
+      {t('documents.management')}
+    </Button>
+
+    <Button
+      variant="ghost"
+      className={emptyView ? 'selected' : ''}
+      onClick={() => {
+        setEmptyView(true)
+        setSelected(null)
+      }}
+    >
+      {t('documents.emptyView')}
+    </Button>
+  </div>
+
+  <span className="story-ref">
+    {emptyView
+      ? 'S1 업로드/처리 (MVP) · S6 최신성 안내 (MVP)'
+      : 'S1 처리 상태 (MVP) · S5 문서 목록 · 삭제 (MVP)'}
+  </span>
+</div>
+
         {shownDocuments.length === 0 ? (
           <section className="empty-state">
             <div className="empty-illustration">
@@ -851,51 +977,57 @@ function ChatPage({
     ])
   }
 
-  const requestMockResponse = (
+  const requestMockResponse = async (
   conversationId: number,
   question: string,
   predefinedResponse?: ChatResponse
 ) => {
   setLoading(true)
 
-  window.setTimeout(() => {
-    // 本地测试：模拟 HTTP 500 返回 SYSTEM_ERROR JSON
+  try {
     let response: ChatResponse
 
-    if (predefinedResponse?.status === 'SYSTEM_ERROR') {
-      const error = createMockSystemError()
-      const data = getApiErrorData(error)
-
-      if (error.status === 500 && isSystemErrorResponse(data)) {
-        response = convertC5ChatResponse({
-  status: 'SYSTEM_ERROR',
-  answer: null,
-  citations: [],
-  message: data.message,
-})
-      } else {
-        response = predefinedResponse
-      }
+    if (predefinedResponse) {
+      // 暂时保留演示场景
+      response = predefinedResponse
     } else {
-      response = predefinedResponse ?? createMockChatResponse(question, readyDocumentCount)
+      // 普通提问调用真实后端
+      const result = await sendChatMessage(question)
+      response = convertC5ChatResponse(result)
     }
 
     const body = response.status === 'ANSWER'
       ? response.answer ?? ''
-      : automaticResponseContent[response.status].body
+      : (automaticResponseContent[response.status] ?? automaticResponseContent.SYSTEM_ERROR).body
 
-    onSetMessages(conversationId, (current) => [...current, {
-      id: Date.now(),
-      role: 'assistant',
-      body,
-      citations: response.citations,
-      citationDetails: response.citationDetails,
-      responseStatus: response.status,
-      request: question,
-    }])
+    onSetMessages(conversationId, (current) => [
+      ...current,
+      {
+        id: Date.now(),
+        role: 'assistant',
+        body,
+        citations: response.citations,
+        citationDetails: response.citationDetails,
+        responseStatus: response.status,
+        request: question,
+      },
+    ])
+  } catch (error) {
+    console.error('Chat API request failed:', error)
 
+    onSetMessages(conversationId, (current) => [
+      ...current,
+      {
+        id: Date.now(),
+        role: 'assistant',
+        body: automaticResponseContent.SYSTEM_ERROR.body,
+        responseStatus: 'SYSTEM_ERROR',
+        request: question,
+      },
+    ])
+  } finally {
     setLoading(false)
-  }, 1500)
+  }
 }
 
   const submitQuestion = (question: string, predefinedResponse?: ChatResponse) => {
@@ -1024,8 +1156,41 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
 
 export default function App() {
   const [page, setPage] = useState<Page>('documents')
-  const [documents, setDocuments] = useState<DocumentItem[]>(initialDocuments)
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [documentsError, setDocumentsError] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(2)
+  const loadDocuments = async () => {
+  try {
+    const apiDocuments = await getDocuments()
+
+    const converted = apiDocuments.map((doc) =>
+  convertC1Document(
+    doc,
+    Array.from(doc.document_id).reduce(
+      (hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0,
+      0
+    ),
+    '-',
+    '韩国'
+  )
+)
+
+    setDocuments(converted)
+    setDocumentsError(false)
+  } catch (error) {
+    console.error('Failed to load documents:', error)
+    setDocumentsError(true)
+  }
+}
+useEffect(() => {
+  void loadDocuments()
+
+  const timer = window.setInterval(() => {
+    void loadDocuments()
+  }, 3000)
+
+  return () => window.clearInterval(timer)
+}, [])
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations)
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(initialConversations[0].id)
   const selected = useMemo(() => documents.find((document) => document.id === selectedId) ?? null, [documents, selectedId])
@@ -1056,6 +1221,7 @@ export default function App() {
     })
   }
 
+  
   return (
     <div className="app-shell">
       <Sidebar
@@ -1068,14 +1234,23 @@ export default function App() {
         onNewConversation={newConversation}
         onDeleteConversation={deleteConversation}
       />
+
       {page === 'documents' ? (
-        <DocumentsPage documents={documents} setDocuments={setDocuments} selected={selected} setSelected={(document) => setSelectedId(document?.id ?? null)}/>
+        <DocumentsPage
+          documentsError={documentsError}
+          documents={documents}
+          setDocuments={setDocuments}
+          selected={selected}
+          setSelected={(document) => setSelectedId(document?.id ?? null)}
+        />
       ) : (
         <ChatPage
           conversation={selectedConversation}
           onNewConversation={newConversation}
           onSetMessages={setConversationMessages}
-          readyDocumentCount={documents.filter((document) => document.status === 'Ready').length}
+          readyDocumentCount={
+            documents.filter((document) => document.status === 'Ready').length
+          }
           onOpenDocuments={() => setPage('documents')}
         />
       )}

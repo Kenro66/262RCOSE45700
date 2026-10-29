@@ -16,7 +16,9 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, options)
 
-  const data: unknown = await response.json()
+  const data: unknown = response.status === 204
+    ? null
+    : await response.json()
 
   if (!response.ok) {
     throw new ApiError(response.status, data)
@@ -127,5 +129,41 @@ export function createMockSystemError(): ApiError {
     answer: null,
     citations: [],
     message: '系统暂时无法处理请求，请稍后重试。',
+  })
+}
+
+
+ // ========================================
+ // C5：Chat 真实问答接口
+ // POST /api/chat
+ // ========================================
+
+export type ApiChatCitation = {
+  evidence_id: string
+  filename: string
+  page: number
+  quote: string
+}
+
+export type ApiChatResponse = {
+  status:
+    | 'ANSWERED'
+    | 'INSUFFICIENT_EVIDENCE'
+    | 'NO_READY_DOCUMENTS'
+    | 'SYSTEM_ERROR'
+  answer: string | null
+  citations: ApiChatCitation[]
+  message: string | null
+}
+
+export function sendChatMessage(message: string): Promise<ApiChatResponse> {
+  return apiRequest<ApiChatResponse>('/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message,
+    }),
   })
 }
