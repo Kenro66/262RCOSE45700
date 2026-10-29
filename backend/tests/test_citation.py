@@ -70,3 +70,16 @@ class CitationTests(unittest.TestCase):
     def test_semicolon_clauses_share_end_of_sentence_references(self):
         self.assertTrue(has_cited_conclusions("示例限量为40支，限一天一次；未成年人不适用。[E1][E2]"))
         self.assertFalse(has_cited_conclusions("示例限量为40支。[E1] 其他规定不适用。"))
+
+    def test_period_before_digit_does_not_hide_uncited_sentence(self):
+        for stop in (".", "．", "․", "﹒"):
+            with self.subTest(stop=stop):
+                self.assertFalse(has_cited_conclusions(f"必须申报[E1]{stop}1件物品无需申报。"))
+                self.assertTrue(has_cited_conclusions(f"必须申报[E1]{stop}1件物品无需申报。[E2]"))
+                self.assertFalse(has_cited_conclusions(f"物品为1{stop}必须申报。"))
+
+    def test_decimal_period_requires_digits_on_both_sides(self):
+        for amount in ("1.5", "１．５"):
+            with self.subTest(amount=amount):
+                self.assertTrue(has_cited_conclusions(f"示例数量为{amount}件。[E1]"))
+                self.assertFalse(has_cited_conclusions(f"示例数量为{amount}件。[E1]下一句无引用。"))

@@ -67,7 +67,7 @@ def resolve_citations(text: str, evidence: list[Evidence], documents: Mapping) -
 def _conclusion_units(text: str) -> list[str]:
     # Normalize only a validation copy; never rewrite the displayed answer or quote.
     text = "\n".join(text.translate(str.maketrans({"｡": "。", "．": ".", "․": ".", "﹒": "."})).splitlines())
-    boundary = re.compile(r"(?:[。！？!?]|\.(?!\d)|\n)[ \t]*(?:\[E\d+\][ \t]*)*")
+    boundary = re.compile(r"(?:[。！？!?]|(?<!\d)\.|\.(?!\d)|\n)[ \t]*(?:\[E\d+\][ \t]*)*")
     start = 0
     units = []
     for match in boundary.finditer(text):

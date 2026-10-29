@@ -38,6 +38,29 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.generate.return_value = self.output("테스트 자료의 예시 한도는 400개입니다.[E1]")
         self.assertEqual((await self.run_answer("담배는 얼마나 가져갈 수 있나요?")).status, ChatStatus.ANSWERED)
 
+    async def test_period_before_digit_rejects_uncited_second_sentence(self):
+        self.generate.return_value = self.output("必须申报[E1].1件物品无需申报。")
+        with self.assertRaisesRegex(AnswerError, "Every generated sentence"):
+            await self.run_answer()
+
+    async def test_period_before_digit_accepts_cited_sentences_without_rewriting(self):
+        self.retrieve.return_value[0]["text"] = "测试资料：必须申报，示例数量为1件。"
+        text = "必须申报[E1].1件物品应当申报。[E1]"
+        self.generate.return_value = self.output(text)
+        result = await self.run_answer()
+        self.assertEqual(result.status, ChatStatus.ANSWERED)
+        self.assertEqual(result.answer, text)
+
+    async def test_decimal_answer_keeps_displayed_text(self):
+        self.retrieve.return_value[0]["text"] = "测试资料：示例数量为1.5件。"
+        for amount in ("1.5", "１．５"):
+            with self.subTest(amount=amount):
+                text = f"示例数量为{amount}件。[E1]"
+                self.generate.return_value = self.output(text)
+                result = await self.run_answer()
+                self.assertEqual(result.status, ChatStatus.ANSWERED)
+                self.assertEqual(result.answer, text)
+
     async def test_unknown_e9_removed(self):
         self.generate.return_value = self.output("测试示例为400支。[E1][E9]")
         result = await self.run_answer()
