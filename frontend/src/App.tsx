@@ -11,7 +11,6 @@ import {
 
 type Page = 'documents' | 'chat'
 type Status = 'Ready' | 'Processing' | 'Failed'
-type ChatMode = 'NORMAL' | 'CLARIFICATION' | 'INSUFFICIENT_EVIDENCE' | 'CONFLICTING_EVIDENCE' | 'SYSTEM_ERROR'
 type ResponseStatus = 'ANSWER' | 'INSUFFICIENT_EVIDENCE' | 'NO_READY_DOCUMENTS' | 'SYSTEM_ERROR'
 
 type ChatResponse = {
@@ -64,7 +63,6 @@ type Message = {
   body: string
   citations?: number[]
   citationDetails?: C5Citation[]
-  kind?: ChatMode
   responseStatus?: ResponseStatus
   request?: string
 }
@@ -108,9 +106,6 @@ function convertC1Document(
   }
 }
 
-const enableDevelopmentScenarioControls = false
-
-// Deterministic prototype simulation; replace this function with an API call that returns ChatResponse.
 // Convert the C5 API response into the format used by the Chat UI.
 function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
   return {
@@ -187,9 +182,9 @@ function StatusBadge({ status }: { status: Status }) {
   return <span className={`status status-${status.toLowerCase()}`}><span className="status-dot"/>{t(labels[status])}</span>
 }
 
-function Disclaimer({ showDemoTag = true }: { showDemoTag?: boolean }) {
+function Disclaimer() {
   const { t } = useI18n()
-  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>　 {t('disclaimer.text')}</span>{showDemoTag && <span className="demo-tag">{t('disclaimer.demo')}</span>}</div>
+  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>　 {t('disclaimer.text')}</span></div>
 }
 
 function LanguageSwitcher() {
@@ -272,11 +267,11 @@ function Sidebar({
       )}
       <div className="sidebar-bottom">
         <div className="storage-card">
-          <div className="storage-title"><Icon name="info" size={16}/><span>{t('prototype.title')}</span></div>
-          <p>{t('prototype.body')}</p>
+          <div className="storage-title"><Icon name="info" size={16}/><span>{t('system.title')}</span></div>
+          <p>{t('system.body')}</p>
         </div>
-        <Button variant="ghost" className="help-link"><Icon name="help"/><span>{t('prototype.help')}</span></Button>
-        <div className="version">Policy AI · Prototype v1.0</div>
+        <Button variant="ghost" className="help-link"><Icon name="help"/><span>{t('system.help')}</span></Button>
+        <div className="version">Policy AI · v1.0</div>
       </div>
       {deletingConversation && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeletingConversation(null)}>
@@ -345,10 +340,6 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
         <div><span className="eyebrow">{t('details.eyebrow')}</span><div className="panel-title">{t('details.title')}</div></div>
         <Button variant="icon" aria-label={t('details.close')} onClick={onClose}><Icon name="close"/></Button>
       </div>
-      <div className="pdf-preview">
-        <div className="pdf-paper"><span>PDF</span><i/><i/><i/></div>
-        <div className="preview-caption">{t('details.preview')}</div>
-      </div>
       <div className="detail-name">{document.name}</div>
       <StatusBadge status={document.status}/>
       <div className="metadata">
@@ -376,21 +367,19 @@ function DocumentsPage({
   setSelected: (document: DocumentItem | null) => void
 }) {
   const { t } = useI18n()
-  const [emptyView, setEmptyView] = useState(false)
   const [deleting, setDeleting] = useState<DocumentItem | null>(null)
   const [search, setSearch] = useState('')
   const [uploading, setUploading] = useState(false)
   const headerFileInputRef = useRef<HTMLInputElement>(null)
-  const shownDocuments = emptyView ? [] : documents.filter((document) => document.name.toLowerCase().includes(search.toLowerCase()))
+  const shownDocuments = documents.filter((document) => document.name.toLowerCase().includes(search.toLowerCase()))
 
-  const simulateUpload = async (file: File) => {
+  const handleUpload = async (file: File) => {
   // 上传前检查文件格式
   if (!file.name.toLowerCase().endsWith('.pdf')) {
     alert('仅支持上传 PDF 文件。')
     return
   }
 
-  setEmptyView(false)
   setUploading(true)
 
   try {
@@ -456,7 +445,7 @@ return (
   style={{ display: 'none' }}
   onChange={(event) => {
     const file = event.target.files?.[0]
-    if (file) void simulateUpload(file)
+    if (file) void handleUpload(file)
     event.target.value = ''
   }}
 />
@@ -483,7 +472,7 @@ return (
 </div>
 </header>
 
-<Disclaimer showDemoTag={false}/>
+<Disclaimer/>
 
 {documentsError && (
   <div role="alert" className="process-summary failed">
@@ -495,37 +484,6 @@ return (
   </div>
 )}
 
-<div className="demo-switch">
-  <span>{t('documents.viewState')}</span>
-
-  <div className="segmented">
-    <Button
-      variant="ghost"
-      className={!emptyView ? 'selected' : ''}
-      onClick={() => setEmptyView(false)}
-    >
-      {t('documents.management')}
-    </Button>
-
-    <Button
-      variant="ghost"
-      className={emptyView ? 'selected' : ''}
-      onClick={() => {
-        setEmptyView(true)
-        setSelected(null)
-      }}
-    >
-      {t('documents.emptyView')}
-    </Button>
-  </div>
-
-  <span className="story-ref">
-    {emptyView
-      ? 'S1 업로드/처리 (MVP) · S6 최신성 안내 (MVP)'
-      : 'S1 처리 상태 (MVP) · S5 문서 목록 · 삭제 (MVP)'}
-  </span>
-</div>
-
         {shownDocuments.length === 0 ? (
           <section className="empty-state">
             <div className="empty-illustration">
@@ -534,12 +492,11 @@ return (
             </div>
             <h2>{t('documents.emptyTitle')}</h2>
             <p>{t('documents.emptyBody')}</p>
-            <UploadZone onUpload={simulateUpload}/>
-            <div className="empty-footnote"><Icon name="info" size={15}/>{t('documents.emptyFootnote')}</div>
+            <UploadZone onUpload={handleUpload}/>
           </section>
         ) : (
           <section className="document-workspace">
-            <UploadZone compact onUpload={simulateUpload}/>
+            <UploadZone compact onUpload={handleUpload}/>
             {uploading && <div className="upload-progress"><span className="spinner"/><div><strong>{t('documents.uploading')}</strong><small>{t('documents.indexing')}</small></div><div className="progress"><span/></div></div>}
             <div className="list-toolbar">
               <div className="search-group"><div className="search-box"><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('documents.search')}/></div><span className="later-label">Later</span></div>
@@ -682,7 +639,7 @@ function CitationPanel({
             </span>
             <div>
               <strong>{citation.document}</strong>
-              <span>{t('citations.koreanLawPdf')}</span>
+              <span>{t('citations.sourcePdf')}</span>
             </div>
           </div>
 
@@ -693,15 +650,12 @@ function CitationPanel({
 
           <div className="evidence-label">
             <span>{t('citations.original')}</span>
-            <span>{t('disclaimer.demo')}</span>
+            <span>{t('citations.verbatim')}</span>
           </div>
 
           <blockquote>{citation.text}</blockquote>
 
-          <div className="evidence-note">
-            <Icon name="info" size={15} />
-            <span>{t('citations.note')}</span>
-          </div>
+
         </div>
       ) : (
         <div className="blank-panel citation-empty">
@@ -736,7 +690,6 @@ function ChatPage({
   const { t } = useI18n()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<ChatMode>('NORMAL')
   const [selectedCitation, setSelectedCitation] = useState(1)
   const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
@@ -759,32 +712,6 @@ function ChatPage({
     text: item.quote,
   })) ?? []
   
-  const exceptionContent: Record<Exclude<ChatMode, 'NORMAL'>, { title: string; body: string; action: string; prompt: string }> = {
-    CLARIFICATION: {
-      title: t('exception.clarification.title'),
-      body: t('exception.clarification.body'),
-      action: t('exception.clarification.action'),
-      prompt: t('exception.clarification.prompt'),
-    },
-    INSUFFICIENT_EVIDENCE: {
-      title: t('exception.insufficient.title'),
-      body: t('exception.insufficient.body'),
-      action: t('exception.insufficient.action'),
-      prompt: t('exception.insufficient.prompt'),
-    },
-    CONFLICTING_EVIDENCE: {
-      title: t('exception.conflicting.title'),
-      body: t('exception.conflicting.body'),
-      action: t('exception.conflicting.action'),
-      prompt: t('exception.conflicting.prompt'),
-    },
-    SYSTEM_ERROR: {
-      title: t('exception.system.title'),
-      body: t('exception.system.body'),
-      action: t('exception.system.action'),
-      prompt: t('exception.system.prompt'),
-    },
-  }
   const automaticResponseContent: Record<Exclude<ResponseStatus, 'ANSWER'>, { title: string; body: string; action: string }> = {
     INSUFFICIENT_EVIDENCE: {
       title: t('exception.insufficient.title'),
@@ -804,19 +731,6 @@ function ChatPage({
   }
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
-
-  const selectMode = (nextMode: ChatMode) => {
-    if (!conversation) return
-    setMode(nextMode)
-    if (nextMode === 'NORMAL') {
-      onSetMessages(conversation.id, [])
-      return
-    }
-    onSetMessages(conversation.id, [
-      { id: Date.now(), role: 'user', body: exceptionContent[nextMode].prompt },
-      { id: Date.now() + 1, role: 'assistant', body: exceptionContent[nextMode].body, kind: nextMode, citations: nextMode === 'CONFLICTING_EVIDENCE' ? [1] : undefined },
-    ])
-  }
 
   const requestResponse = async (
   conversationId: number,
@@ -884,16 +798,8 @@ const sendMessage = () => submitQuestion(input)
       <main className="main-column chat-main">
         <header className="page-header chat-header">
           <div><div className="title-row"><h1>Chat</h1><span className="online-dot"/><span className="online-text">{t('chat.ready')}</span></div><p>{t('chat.subtitle', { count: readyDocumentCount, title: conversation ? (conversation.isUntitled ? t('history.untitled') : conversation.title) : t('chat.current') })}</p></div>
-          <div className="header-actions"><Button variant="default" onClick={() => { onNewConversation(); setMode('NORMAL') }}>{t('history.new')}</Button><LanguageSwitcher/></div>
+          <div className="header-actions"><Button variant="default" onClick={onNewConversation}>{t('history.new')}</Button><LanguageSwitcher/></div>
         </header>
-        {enableDevelopmentScenarioControls && <div className="exception-controls">
-          <div className="control-heading"><span>{t('chat.demoScenarios')}</span><span className="story-ref feature-list"><span>S2 정책 질의응답 (MVP)</span><span>S3 출처 표시 (MVP)</span><span>S4 거절 (MVP)</span><span>S7 조건 질문 (1차)</span><span>S9 충돌 안내 (1차)</span><span className="later-stage">S10 다중 턴 (Later · 2차)</span></span></div>
-          <div className="mode-buttons">
-            {(['NORMAL', 'CLARIFICATION', 'INSUFFICIENT_EVIDENCE', 'CONFLICTING_EVIDENCE', 'SYSTEM_ERROR'] as ChatMode[]).map((item) => (
-              <Button key={item} variant="ghost" className={mode === item ? 'active' : ''} onClick={() => selectMode(item)}>{item === 'NORMAL' ? t('chat.normal') : item}</Button>
-            ))}
-          </div>
-        </div>}
         <section className="conversation">
           <div className="conversation-inner">
             {messages.length === 0 && (
@@ -921,11 +827,8 @@ const sendMessage = () => submitQuestion(input)
               const responseState = message.responseStatus && message.responseStatus !== 'ANSWER'
                 ? automaticResponseContent[message.responseStatus]
                 : null
-              const developmentState = message.kind && message.kind !== 'NORMAL'
-                ? exceptionContent[message.kind]
-                : null
-              const renderedState = responseState ?? developmentState
-              const stateCode = responseState ? message.responseStatus : developmentState ? message.kind : null
+              const renderedState = responseState
+              const stateCode = responseState ? message.responseStatus : null
               return (
                 <div className={`message-row ${message.role}`} key={message.id}>
                   <div className={message.role === 'assistant' ? 'ai-avatar' : 'user-avatar'}>{message.role === 'assistant' ? <Icon name="spark" size={17}/> : t('chat.userAvatar')}</div>
@@ -937,7 +840,7 @@ const sendMessage = () => submitQuestion(input)
                       {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={(citationId) => { setCitationMessageId(message.id); setSelectedCitation(citationId) }} key={id}/>)}</div>}
                       {renderedState && <div className="exception-action">{renderedState.action}</div>}
                       {stateCode === 'NO_READY_DOCUMENTS' && <Button variant="default" className="retry-button" onClick={onOpenDocuments}><Icon name="files" size={16}/>{t('chat.goDocuments')}</Button>}
-                      {stateCode === 'SYSTEM_ERROR' && <Button variant="default" className="retry-button" onClick={() => responseState ? retryRequest(message.request) : selectMode('NORMAL')}><Icon name="retry" size={16}/>{t('chat.retry')}</Button>}
+                      {stateCode === 'SYSTEM_ERROR' && <Button variant="default" className="retry-button" onClick={() => retryRequest(message.request)}><Icon name="retry" size={16}/>{t('chat.retry')}</Button>}
                     </div>
                   </div>
                 </div>
@@ -948,7 +851,7 @@ const sendMessage = () => submitQuestion(input)
           </div>
         </section>
         <div className="composer-area">
-          <div className="composer-disclaimer"><Disclaimer showDemoTag={false}/></div>
+          <div className="composer-disclaimer"><Disclaimer/></div>
           <div className="composer">
             <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage() } }} placeholder={t('chat.input')} rows={1}/>
             <div className="composer-bottom"><div><Icon name="globe" size={15}/>{t('chat.languages')}</div><Button variant="primary" className="send-button" aria-label={t('chat.sendAria')} onClick={sendMessage} disabled={!input.trim() || loading}><Icon name="send" size={17}/></Button></div>

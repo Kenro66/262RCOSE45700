@@ -117,22 +117,6 @@ export function isSystemErrorResponse(
   )
 }
 
-// ========================================
-// 本地测试：模拟后端 HTTP 500
-// 对应 Issue #8 的 SYSTEM_ERROR JSON
-// 不发送真实网络请求
-// ========================================
-
-export function createMockSystemError(): ApiError {
-  return new ApiError(500, {
-    status: 'SYSTEM_ERROR',
-    answer: null,
-    citations: [],
-    message: '系统暂时无法处理请求，请稍后重试。',
-  })
-}
-
-
  // ========================================
  // C5：Chat 真实问答接口
  // POST /api/chat
