@@ -578,10 +578,22 @@ function DocumentsPage({
 )
 
     setDocuments((current) => [item, ...current])
-    setSelected(item)
-  } catch (error) {
-  console.error('Failed to load documents:', error)
-  }
+setSelected(item)
+} catch (error) {
+  console.error('Failed to upload document:', error)
+ const errorData = getApiErrorData(error)
+const errorMessage =
+  errorData !== null &&
+  typeof errorData === 'object' &&
+  'message' in errorData &&
+  typeof errorData.message === 'string'
+    ? errorData.message
+    : 'PDF 上传失败，请检查后端服务后重试。'
+
+alert(errorMessage)
+} finally {
+  setUploading(false)
+}
 }
 
  const confirmDelete = async () => {
@@ -1064,9 +1076,9 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
 }
 
   const retryRequest = (question?: string) => {
-    if (!conversation || !question || loading) return
-    requestMockResponse(conversation.id, question, { status: 'INSUFFICIENT_EVIDENCE' })
-  }
+  if (!conversation || !question || loading) return
+  requestMockResponse(conversation.id, question)
+}
 
   return (
     <>
