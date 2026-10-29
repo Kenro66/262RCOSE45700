@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from './i18n/I18nContext'
 import type { TranslationKey } from './i18n/zh-CN'
+import {
+  getDocuments,
+  uploadDocument,
+  deleteDocument,
+  sendChatMessage,
+  getApiErrorData,
+} from './api/client'
 
 type Page = 'documents' | 'chat'
 type Status = 'Ready' | 'Processing' | 'Failed'
-type ChatMode = 'NORMAL' | 'CLARIFICATION' | 'INSUFFICIENT_EVIDENCE' | 'CONFLICTING_EVIDENCE' | 'SYSTEM_ERROR'
 type ResponseStatus = 'ANSWER' | 'INSUFFICIENT_EVIDENCE' | 'NO_READY_DOCUMENTS' | 'SYSTEM_ERROR'
 
 type ChatResponse = {
@@ -12,6 +18,7 @@ type ChatResponse = {
   answer?: string
   citations?: number[]
   citationDetails?: C5Citation[]
+  message?: string
 }
 
 type C5Citation = {
@@ -32,19 +39,14 @@ type C5ChatResponse = {
   message: string | null
 }
 
-type RecommendedScenario = {
-  question: string
-  status: ResponseStatus
-}
-
-type DocumentItem = {
+ type DocumentItem = {
   id: number
+  documentId?: string
   name: string
   date: string
   status: Status
   size: string
   pages: number | null
-  country: '中国' | '韩国'
   errorMessage?: string
 }
 
@@ -61,7 +63,6 @@ type Message = {
   body: string
   citations?: number[]
   citationDetails?: C5Citation[]
-  kind?: ChatMode
   responseStatus?: ResponseStatus
   request?: string
 }
@@ -86,11 +87,11 @@ type C1Document = {
 function convertC1Document(
   doc: C1Document,
   id: number,
-  size: string,
-  country: '中国' | '韩国'
+  size: string
 ): DocumentItem {
   return {
     id,
+    documentId: doc.document_id,
     name: doc.filename,
     date: doc.uploaded_at,
     status:
@@ -101,96 +102,24 @@ function convertC1Document(
           : 'Failed',
     size,
     pages: doc.page_count,
-    country,
     errorMessage: doc.error_message ?? undefined
   }
 }
 
-const mockC1Documents: C1Document[] = [
-  {
-    document_id: 'doc_001',
-    filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-    status: 'READY',
-    error_message: null,
-    page_count: 24,
-    uploaded_at: '2026-10-15T14:32:00+09:00',
-  },
-  {
-    document_id: 'doc_002',
-    filename: '中国海关_进境旅客行李物品通关须知.pdf',
-    status: 'READY',
-    error_message: null,
-    page_count: 36,
-    uploaded_at: '2026-10-15T14:18:00+09:00',
-  },
-  {
-    document_id: 'doc_003',
-    filename: '한국관세청_여행자휴대품신고안내.pdf',
-    status: 'PROCESSING',
-    error_message: null,
-    page_count: null,
-    uploaded_at: '2026-10-15T13:04:00+09:00',
-  },
-  {
-    document_id: 'doc_004',
-    filename: '구버전_한국입국물품신고안내_스캔본.pdf',
-    status: 'FAILED',
-    error_message: '실패 사유: 텍스트를 추출할 수 없음 · 스캔 문서',
-    page_count: null,
-    uploaded_at: '2026-10-15T17:46:00+09:00',
-  },
-]
-
-const initialDocuments: DocumentItem[] = mockC1Documents.map((doc, index) =>
-  convertC1Document(
-    doc,
-    index + 1,
-    ['2.8 MB', '4.1 MB', '1.6 MB', '4.7 MB'][index],
-    index === 1 ? '中国' : '韩国'
-  )
-)
-
-const citations: Citation[] = [
-  {
-    id: 1,
-    document: '관세법 시행규칙',
-    reference: '제48조 ③',
-    text: '"담배 · 궐련 · 200개비" [별도면세범위 표]',
-  },
-]
-
-const initialMessages: Message[] = [
-  {
-    id: 1,
-    role: 'user',
-    body: '중국에서 한국으로 입국하는 성인 여행객입니다. 일반 담배 2보루(400개비)를 가지고 있는데, 모두 면세가 되나요?',
-  },
-  {
-    id: 2,
-    role: 'assistant',
-    body: '아니요. 한국 입국 시 일반 담배의 면세한도는 여행자 1명당 200개비(1보루)입니다. 400개비는 면세한도를 초과하므로 세관에 신고해야 합니다. 실제 세금은 적용 조건에 따라 확인이 필요합니다.',
-    citations: [1],
-    citationDetails: [
-      {
-        evidence_id: 'E1',
-        filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-        page: 27,
-        quote: '담배 · 궐련 · 200개비',
-      },
-    ],
-    kind: 'NORMAL',
-    responseStatus: 'ANSWER',
-  },
-]
-
-const enableDevelopmentScenarioControls = false
-
-// Deterministic prototype simulation; replace this function with an API call that returns ChatResponse.
 // Convert the C5 API response into the format used by the Chat UI.
 function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
   return {
-    status: data.status === 'ANSWERED' ? 'ANSWER' : data.status,
+    // 后端 ANSWERED 对应前端 ANSWER
+   status: data.status === 'ANSWERED'
+  ? 'ANSWER'
+  : ['NO_READY_DOCUMENTS', 'INSUFFICIENT_EVIDENCE', 'SYSTEM_ERROR'].includes(data.status)
+    ? data.status
+    : 'SYSTEM_ERROR',
+    // 保存回答内容和后端提示信息
     answer: data.answer ?? undefined,
+    message: data.message ?? undefined,
+
+    // 将 E1、E2 等证据编号转换为前端使用的数字
     citations: data.citations
       .map((citation) => {
         const citationId = Number(
@@ -199,104 +128,21 @@ function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
         return citationId
       })
       .filter((id) => Number.isFinite(id)),
+
+    // 保留 PDF 文件名、页码和证据原文
     citationDetails: data.citations,
   }
 }
 
-// Generate a mock chat response using the C5 API response format.
-function createMockChatResponse(
-  question: string,
-  readyDocumentCount: number
-): ChatResponse {
-  let mockResponse: C5ChatResponse
-
-  if (readyDocumentCount === 0) {
-    mockResponse = {
-      status: 'NO_READY_DOCUMENTS',
-      answer: null,
-      citations: [],
-      message: '현재 사용 가능한 정책 문서가 없습니다.',
-    }
-  } else if (
-    /(시스템 오류|서버 오류|에러|system error|server error|系统错误|服务器错误)/i.test(question)
-  ) {
-    mockResponse = {
-      status: 'SYSTEM_ERROR',
-      answer: null,
-      citations: [],
-      message: '일시적인 시스템 오류가 발생했습니다.',
-    }
-  } else if (
-    /(담배|궐련|香烟|卷烟|cigarette|tobacco)/i.test(question)
-  ) {
-    let answer =
-      '根据已上传的演示文件，韩国入境时普通香烟的免税限额为每名旅客 200 支。携带 400 支超过免税限额，需要向海关申报。实际税额仍需根据适用条件确认。'
-
-    if (/[가-힣]/.test(question)) {
-      answer =
-        '아니요. 한국 입국 시 일반 담배의 면세한도는 여행자 1명당 200개비(1보루)입니다. 400개비는 면세한도를 초과하므로 세관에 신고해야 합니다. 실제 세금은 적용 조건에 따라 확인이 필요합니다.'
-    }
-
-    if (/^[\x00-\x7F\s?.,'!-]+$/.test(question)) {
-      answer =
-        'No. The duty-free allowance for regular cigarettes when entering Korea is 200 cigarettes per traveler. Carrying 400 exceeds the allowance and must be declared to customs.'
-    }
-
-    mockResponse = {
-      status: 'ANSWERED',
-      answer,
-      citations: [
-        {
-          evidence_id: 'E1',
-          filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-          page: 27,
-          quote: '담배 · 궐련 · 200개비',
-        },
-      ],
-      message: null,
-    }
-  } else {
-    mockResponse = {
-      status: 'INSUFFICIENT_EVIDENCE',
-      answer: null,
-      citations: [],
-      message: '현재 정책 문서에서 충분한 근거를 찾지 못했습니다.',
-    }
+function getErrorMessage(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const value = data as Record<string, unknown>
+  for (const key of ['detail', 'answer', 'message']) {
+    const text = value[key]
+    if (typeof text === 'string' && text.trim()) return text.trim()
   }
-
-  return convertC5ChatResponse(mockResponse)
+  return undefined
 }
-
-const initialConversations: Conversation[] = [
-  { id: 101, title: '한국 입국 시 담배 면세한도', updatedAt: '2026年10月16日', messages: initialMessages },
-  {
-    id: 102,
-    title: '중국 입국 시 주류 면세한도',
-    updatedAt: '2026年10月15日',
-    messages: [
-      { id: 21, role: 'user', body: '한국에서 중국으로 입국할 때 술은 몇 병까지 면세로 반입할 수 있나요?' },
-      { id: 22, role: 'assistant', body: '', responseStatus: 'INSUFFICIENT_EVIDENCE' },
-    ],
-  },
-  {
-    id: 103,
-    title: '상비약 반입 신고 여부',
-    updatedAt: '2026年10月14日',
-    messages: [
-      { id: 31, role: 'user', body: '감기약 같은 상비약을 가지고 입국하면 신고해야 하나요?' },
-      { id: 32, role: 'assistant', body: '', responseStatus: 'SYSTEM_ERROR', request: '감기약 같은 상비약을 가지고 입국하면 신고해야 하나요?' },
-    ],
-  },
-  {
-    id: 104,
-    title: '육류 가공품 반입 가능 여부',
-    updatedAt: '2026年10月13日',
-    messages: [
-      { id: 41, role: 'user', body: '육포 같은 육류 가공품을 한국에 가져올 수 있나요?' },
-      { id: 42, role: 'assistant', body: '', responseStatus: 'NO_READY_DOCUMENTS' },
-    ],
-  },
-]
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const paths: Record<string, React.ReactNode> = {
@@ -336,9 +182,9 @@ function StatusBadge({ status }: { status: Status }) {
   return <span className={`status status-${status.toLowerCase()}`}><span className="status-dot"/>{t(labels[status])}</span>
 }
 
-function Disclaimer({ showDemoTag = true }: { showDemoTag?: boolean }) {
+function Disclaimer() {
   const { t } = useI18n()
-  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>　 {t('disclaimer.text')}</span>{showDemoTag && <span className="demo-tag">{t('disclaimer.demo')}</span>}</div>
+  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>　 {t('disclaimer.text')}</span></div>
 }
 
 function LanguageSwitcher() {
@@ -353,9 +199,7 @@ function LanguageSwitcher() {
   )
 }
 
-function localizeCountry(country: string, t: (key: TranslationKey, variables?: Record<string, string | number>) => string) {
-  return country === '中国' ? t('country.china') : country === '韩国' ? t('country.korea') : country
-}
+
 
 function Sidebar({
   page,
@@ -423,11 +267,11 @@ function Sidebar({
       )}
       <div className="sidebar-bottom">
         <div className="storage-card">
-          <div className="storage-title"><Icon name="info" size={16}/><span>{t('prototype.title')}</span></div>
-          <p>{t('prototype.body')}</p>
+          <div className="storage-title"><Icon name="info" size={16}/><span>{t('system.title')}</span></div>
+          <p>{t('system.body')}</p>
         </div>
-        <Button variant="ghost" className="help-link"><Icon name="help"/><span>{t('prototype.help')}</span></Button>
-        <div className="version">Policy AI · Prototype v1.0</div>
+        <Button variant="ghost" className="help-link"><Icon name="help"/><span>{t('system.help')}</span></Button>
+        <div className="version">Policy AI · v1.0</div>
       </div>
       {deletingConversation && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeletingConversation(null)}>
@@ -443,22 +287,39 @@ function Sidebar({
   )
 }
 
-function UploadZone({ onUpload, compact = false }: { onUpload: () => void; compact?: boolean }) {
+function UploadZone({ onUpload, compact = false }: { onUpload: (file: File) => void; compact?: boolean }) {
   const { t } = useI18n()
   const [dragging, setDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   return (
     <div
       className={`upload-zone ${compact ? 'compact' : ''} ${dragging ? 'dragging' : ''}`}
       onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(event) => { event.preventDefault(); setDragging(false); onUpload() }}
+     onDrop={(event) => {
+  event.preventDefault()
+  setDragging(false)
+  const file = event.dataTransfer.files[0]
+  if (file) onUpload(file)
+}}
     >
+    <input
+  ref={fileInputRef}
+  type="file"
+  accept=".pdf,application/pdf"
+  style={{ display: 'none' }}
+  onChange={(event) => {
+    const file = event.target.files?.[0]
+    if (file) onUpload(file)
+    event.target.value = ''
+  }}
+/>
       <div className="upload-icon"><Icon name="upload" size={compact ? 19 : 24}/></div>
       <div>
         <div className="upload-title">{compact ? t('upload.compact') : t('upload.title')}</div>
         {!compact && <div className="upload-hint">{t('upload.hint')}</div>}
       </div>
-      <Button variant={compact ? 'ghost' : 'default'} onClick={onUpload}>{compact ? t('upload.select') : t('upload.browse')}</Button>
+      <Button variant={compact ? 'ghost' : 'default'} onClick={() => fileInputRef.current?.click()}>{compact ? t('upload.select') : t('upload.browse')}</Button>
     </div>
   )
 }
@@ -479,15 +340,10 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
         <div><span className="eyebrow">{t('details.eyebrow')}</span><div className="panel-title">{t('details.title')}</div></div>
         <Button variant="icon" aria-label={t('details.close')} onClick={onClose}><Icon name="close"/></Button>
       </div>
-      <div className="pdf-preview">
-        <div className="pdf-paper"><span>PDF</span><i/><i/><i/></div>
-        <div className="preview-caption">{t('details.preview')}</div>
-      </div>
       <div className="detail-name">{document.name}</div>
       <StatusBadge status={document.status}/>
       <div className="metadata">
         <div><span>{t('details.fileSize')}</span><strong>{document.size}</strong></div>
-        <div><span>{t('details.country')}</span><strong>{localizeCountry(document.country, t)}</strong></div>
         <div><span>{t('details.pages')}</span><strong>{document.pages ? t('details.pageUnit', { count: document.pages }) : '—'}</strong></div>
       </div>
       {document.status === 'Ready' && <div className="process-summary"><div className="summary-icon"><Icon name="check" size={16}/></div><div><strong>{t('details.readyTitle')}</strong><p>{t('details.readyBody')}</p></div></div>}
@@ -498,59 +354,136 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
 }
 
 function DocumentsPage({
+  documentsError,
   documents,
   setDocuments,
   selected,
   setSelected,
 }: {
+  documentsError: boolean
   documents: DocumentItem[]
   setDocuments: React.Dispatch<React.SetStateAction<DocumentItem[]>>
   selected: DocumentItem | null
   setSelected: (document: DocumentItem | null) => void
 }) {
   const { t } = useI18n()
-  const [emptyView, setEmptyView] = useState(false)
   const [deleting, setDeleting] = useState<DocumentItem | null>(null)
   const [search, setSearch] = useState('')
   const [uploading, setUploading] = useState(false)
-  const shownDocuments = emptyView ? [] : documents.filter((document) => document.name.toLowerCase().includes(search.toLowerCase()))
+  const headerFileInputRef = useRef<HTMLInputElement>(null)
+  const shownDocuments = documents.filter((document) => document.name.toLowerCase().includes(search.toLowerCase()))
 
-  const simulateUpload = () => {
-    setEmptyView(false)
-    setUploading(true)
-    const item: DocumentItem = { id: Date.now(), name: '여행자휴대품_통관안내_추가자료.pdf', date: '刚刚', status: 'Processing', size: '1.9 MB', pages: null, country: '中国' }
+  const handleUpload = async (file: File) => {
+  // 上传前检查文件格式
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    alert('仅支持上传 PDF 文件。')
+    return
+  }
+
+  setUploading(true)
+
+  try {
+    // 把真正的 PDF 发送给后端
+    const result = await uploadDocument(file)
+
+    // 根据后端返回的数据创建文件记录
+    const item = convertC1Document(
+  result,
+  Array.from(result.document_id).reduce(
+    (hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0,
+    0
+  ),
+  `${(file.size / 1024 / 1024).toFixed(1)} MB`
+)
+
     setDocuments((current) => [item, ...current])
-    setSelected(item)
-    window.setTimeout(() => {
-      setDocuments((current) => current.map((document) => document.id === item.id ? { ...document, status: 'Ready', pages: 18 } : document))
-      setSelected({ ...item, status: 'Ready', pages: 18 })
-      setUploading(false)
-    }, 2200)
+setSelected(item)
+} catch (error) {
+  console.error('Failed to upload document:', error)
+ const errorData = getApiErrorData(error)
+const errorMessage = getErrorMessage(errorData) ?? 'PDF 上传失败，请检查后端服务后重试。'
+
+alert(errorMessage)
+} finally {
+  setUploading(false)
+}
+}
+
+ const confirmDelete = async () => {
+  if (!deleting) return
+
+  if (!deleting.documentId) {
+    alert('该文件没有后端 document_id，无法执行真实删除。')
+    return
   }
 
-  const confirmDelete = () => {
-    if (!deleting) return
-    setDocuments((current) => current.filter((document) => document.id !== deleting.id))
-    if (selected?.id === deleting.id) setSelected(null)
+  try {
+    await deleteDocument(deleting.documentId)
+
+    setDocuments((current) =>
+      current.filter((document) => document.id !== deleting.id)
+    )
+
+    if (selected?.id === deleting.id) {
+      setSelected(null)
+    }
+
     setDeleting(null)
+  } catch (error) {
+    console.error('Failed to delete document:', error)
+    alert('删除失败，请检查后端服务。')
   }
-
-  return (
+}
+return (
     <>
       <main className="main-column">
         <header className="page-header">
-          <div><div className="title-row"><h1>Documents</h1><span className="doc-total">{t('documents.count', { count: documents.length })}</span></div><p>{t('documents.subtitle')}</p></div>
-          <div className="header-actions"><Button variant="primary" onClick={simulateUpload}><Icon name="upload"/><span>{t('documents.uploadButton')}</span></Button><LanguageSwitcher/></div>
-        </header>
-        <Disclaimer showDemoTag={false}/>
-        <div className="demo-switch">
-          <span>{t('documents.viewState')}</span>
-          <div className="segmented">
-            <Button variant="ghost" className={!emptyView ? 'selected' : ''} onClick={() => setEmptyView(false)}>{t('documents.management')}</Button>
-            <Button variant="ghost" className={emptyView ? 'selected' : ''} onClick={() => { setEmptyView(true); setSelected(null) }}>{t('documents.emptyView')}</Button>
-          </div>
-          <span className="story-ref">{emptyView ? 'S1 업로드/처리 (MVP) · S6 최신성 안내 (MVP)' : 'S1 처리 상태 (MVP) · S5 문서 목록 · 삭제 (MVP)'}</span>
-        </div>
+          <input
+  ref={headerFileInputRef}
+  type="file"
+  accept=".pdf,application/pdf"
+  style={{ display: 'none' }}
+  onChange={(event) => {
+    const file = event.target.files?.[0]
+    if (file) void handleUpload(file)
+    event.target.value = ''
+  }}
+/>
+          
+<div>
+  <div className="title-row">
+    <h1>Documents</h1>
+    <span className="doc-total">
+      {t('documents.count', { count: documents.length })}
+    </span>
+  </div>
+  <p>{t('documents.subtitle')}</p>
+</div>
+
+<div className="header-actions">
+  <Button
+    variant="primary"
+    onClick={() => headerFileInputRef.current?.click()}
+  >
+    <Icon name="upload"/>
+    <span>{t('documents.uploadButton')}</span>
+  </Button>
+  <LanguageSwitcher/>
+</div>
+</header>
+
+<Disclaimer/>
+
+{documentsError && (
+  <div role="alert" className="process-summary failed">
+    <Icon name="warning" size={16}/>
+    <div>
+      <strong>无法连接文档服务</strong>
+      <p>暂时无法获取真实文件列表，请检查后端服务后重试。</p>
+    </div>
+  </div>
+)}
+
         {shownDocuments.length === 0 ? (
           <section className="empty-state">
             <div className="empty-illustration">
@@ -559,12 +492,11 @@ function DocumentsPage({
             </div>
             <h2>{t('documents.emptyTitle')}</h2>
             <p>{t('documents.emptyBody')}</p>
-            <UploadZone onUpload={simulateUpload}/>
-            <div className="empty-footnote"><Icon name="info" size={15}/>{t('documents.emptyFootnote')}</div>
+            <UploadZone onUpload={handleUpload}/>
           </section>
         ) : (
           <section className="document-workspace">
-            <UploadZone compact onUpload={simulateUpload}/>
+            <UploadZone compact onUpload={handleUpload}/>
             {uploading && <div className="upload-progress"><span className="spinner"/><div><strong>{t('documents.uploading')}</strong><small>{t('documents.indexing')}</small></div><div className="progress"><span/></div></div>}
             <div className="list-toolbar">
               <div className="search-group"><div className="search-box"><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('documents.search')}/></div><span className="later-label">Later</span></div>
@@ -574,7 +506,7 @@ function DocumentsPage({
               <div className="table-head"><span>{t('documents.columnName')}</span><span>{t('documents.columnStatus')}</span><span/></div>
               {shownDocuments.map((document) => (
                 <div className={`table-row ${selected?.id === document.id ? 'selected' : ''}`} key={document.id} onClick={() => setSelected(document)}>
-                  <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.name}</strong><small>{document.size} · {localizeCountry(document.country, t)}</small></div></div>
+                  <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.name}</strong><small>{document.size}</small></div></div>
                   <StatusBadge status={document.status}/>
                   <Button variant="icon" className="delete-button" aria-label={t('documents.deleteAria', { name: document.name })} onClick={(event) => { event.stopPropagation(); setDeleting(document) }}><Icon name="trash" size={17}/></Button>
                 </div>
@@ -608,7 +540,7 @@ function CitationPanel({
   onSelect,
   responseStatus,
   onOpenDocuments,
-  items = citations,
+  items = [],
 }: {
   selectedId: number
   onSelect: (id: number) => void
@@ -707,7 +639,7 @@ function CitationPanel({
             </span>
             <div>
               <strong>{citation.document}</strong>
-              <span>{t('citations.koreanLawPdf')}</span>
+              <span>{t('citations.sourcePdf')}</span>
             </div>
           </div>
 
@@ -718,15 +650,12 @@ function CitationPanel({
 
           <div className="evidence-label">
             <span>{t('citations.original')}</span>
-            <span>{t('disclaimer.demo')}</span>
+            <span>{t('citations.verbatim')}</span>
           </div>
 
           <blockquote>{citation.text}</blockquote>
 
-          <div className="evidence-note">
-            <Icon name="info" size={15} />
-            <span>{t('citations.note')}</span>
-          </div>
+
         </div>
       ) : (
         <div className="blank-panel citation-empty">
@@ -761,53 +690,28 @@ function ChatPage({
   const { t } = useI18n()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<ChatMode>('NORMAL')
   const [selectedCitation, setSelectedCitation] = useState(1)
+  const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const messages = conversation?.messages ?? []
-  const exampleQuestions: RecommendedScenario[] = [
-    { question: t('chat.example1'), status: 'ANSWER' },
-    { question: t('chat.example2'), status: 'INSUFFICIENT_EVIDENCE' },
-    { question: t('chat.example3'), status: 'NO_READY_DOCUMENTS' },
-    { question: t('chat.example4'), status: 'SYSTEM_ERROR' },
+  const exampleQuestions = [
+    t('chat.example1'),
+    t('chat.example2'),
+    t('chat.example3'),
+    t('chat.example4'),
   ]
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
-  const citationPanelStatus = latestAssistantMessage?.responseStatus
-    ?? (latestAssistantMessage?.citations?.length ? 'ANSWER' : undefined)
+  const citationMessage = messages.find((message) => message.id === citationMessageId && message.role === 'assistant') ?? latestAssistantMessage
+  const citationPanelStatus = citationMessage?.responseStatus
+    ?? (citationMessage?.citations?.length ? 'ANSWER' : undefined)
     const currentCitations: Citation[] =
-  latestAssistantMessage?.citationDetails?.map((item, index) => ({
+  citationMessage?.citationDetails?.map((item, index) => ({
     id: Number(item.evidence_id.replace(/^E/i, '')) || index + 1,
     document: item.filename,
     reference: `PDF p.${item.page}`,
     text: item.quote,
-  })) ?? citations     //Convert C5 citation details into the CitationPanel display format.
+  })) ?? []
   
-  const exceptionContent: Record<Exclude<ChatMode, 'NORMAL'>, { title: string; body: string; action: string; prompt: string }> = {
-    CLARIFICATION: {
-      title: t('exception.clarification.title'),
-      body: t('exception.clarification.body'),
-      action: t('exception.clarification.action'),
-      prompt: t('exception.clarification.prompt'),
-    },
-    INSUFFICIENT_EVIDENCE: {
-      title: t('exception.insufficient.title'),
-      body: t('exception.insufficient.body'),
-      action: t('exception.insufficient.action'),
-      prompt: t('exception.insufficient.prompt'),
-    },
-    CONFLICTING_EVIDENCE: {
-      title: t('exception.conflicting.title'),
-      body: t('exception.conflicting.body'),
-      action: t('exception.conflicting.action'),
-      prompt: t('exception.conflicting.prompt'),
-    },
-    SYSTEM_ERROR: {
-      title: t('exception.system.title'),
-      body: t('exception.system.body'),
-      action: t('exception.system.action'),
-      prompt: t('exception.system.prompt'),
-    },
-  }
   const automaticResponseContent: Record<Exclude<ResponseStatus, 'ANSWER'>, { title: string; body: string; action: string }> = {
     INSUFFICIENT_EVIDENCE: {
       title: t('exception.insufficient.title'),
@@ -828,27 +732,26 @@ function ChatPage({
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
 
-  const selectMode = (nextMode: ChatMode) => {
-    if (!conversation) return
-    setMode(nextMode)
-    if (nextMode === 'NORMAL') {
-      onSetMessages(conversation.id, initialMessages)
-      return
-    }
-    onSetMessages(conversation.id, [
-      { id: Date.now(), role: 'user', body: exceptionContent[nextMode].prompt },
-      { id: Date.now() + 1, role: 'assistant', body: exceptionContent[nextMode].body, kind: nextMode, citations: nextMode === 'CONFLICTING_EVIDENCE' ? [1] : undefined },
-    ])
-  }
+  const requestResponse = async (
+  conversationId: number,
+  question: string
+) => {
+  setLoading(true)
+  setCitationMessageId(null)
+  setSelectedCitation(1)
 
-  const requestMockResponse = (conversationId: number, question: string, predefinedResponse?: ChatResponse) => {
-    setLoading(true)
-    window.setTimeout(() => {
-      const response = predefinedResponse ?? createMockChatResponse(question, readyDocumentCount)
-      const body = response.status === 'ANSWER'
-        ? response.answer ?? ''
-        : automaticResponseContent[response.status].body
-      onSetMessages(conversationId, (current) => [...current, {
+  try {
+    const result = await sendChatMessage(question)
+    const response = convertC5ChatResponse(result)
+
+    const body = response.status === 'ANSWER'
+      ? response.answer ?? ''
+      : response.answer?.trim() || response.message?.trim()
+        || (automaticResponseContent[response.status] ?? automaticResponseContent.SYSTEM_ERROR).body
+
+    onSetMessages(conversationId, (current) => [
+      ...current,
+      {
         id: Date.now(),
         role: 'assistant',
         body,
@@ -856,61 +759,47 @@ function ChatPage({
         citationDetails: response.citationDetails,
         responseStatus: response.status,
         request: question,
-      }])
-      setLoading(false)
-    }, 1500)
-  }
+      },
+    ])
+  } catch (error) {
+    console.error('Chat API request failed:', error)
 
-  const submitQuestion = (question: string, predefinedResponse?: ChatResponse) => {
+    onSetMessages(conversationId, (current) => [
+      ...current,
+      {
+        id: Date.now(),
+        role: 'assistant',
+        body: getErrorMessage(getApiErrorData(error)) ?? automaticResponseContent.SYSTEM_ERROR.body,
+        responseStatus: 'SYSTEM_ERROR',
+        request: question,
+      },
+    ])
+  } finally {
+    setLoading(false)
+  }
+}
+
+  const submitQuestion = (question: string) => {
     const trimmed = question.trim()
     if (!trimmed || loading || !conversation) return
     const conversationId = conversation.id
     onSetMessages(conversationId, (current) => [...current, { id: Date.now(), role: 'user', body: trimmed }])
     setInput('')
-    requestMockResponse(conversationId, trimmed, predefinedResponse)
+    requestResponse(conversationId, trimmed)
   }
 const sendMessage = () => submitQuestion(input)
-const submitRecommendedScenario = (scenario: RecommendedScenario) => {
-  
-  const response: ChatResponse = scenario.status === 'ANSWER'
-    ? {
-        status: 'ANSWER',
-        answer: t('response.tobaccoAnswer'),
-        citations: [1],
-        citationDetails: [
-          {
-            evidence_id: 'E1',
-            filename: '관세법 시행규칙_여행자휴대품면세범위.pdf',
-            page: 27,
-            quote: '담배 · 궐련 · 200개비',
-          },
-        ],
-      }
-    : { status: scenario.status }
-
-  submitQuestion(scenario.question, response)
-}
-
   const retryRequest = (question?: string) => {
-    if (!conversation || !question || loading) return
-    requestMockResponse(conversation.id, question, { status: 'INSUFFICIENT_EVIDENCE' })
-  }
+  if (!conversation || !question || loading) return
+  requestResponse(conversation.id, question)
+}
 
   return (
     <>
       <main className="main-column chat-main">
         <header className="page-header chat-header">
           <div><div className="title-row"><h1>Chat</h1><span className="online-dot"/><span className="online-text">{t('chat.ready')}</span></div><p>{t('chat.subtitle', { count: readyDocumentCount, title: conversation ? (conversation.isUntitled ? t('history.untitled') : conversation.title) : t('chat.current') })}</p></div>
-          <div className="header-actions"><Button variant="default" onClick={() => { onNewConversation(); setMode('NORMAL') }}>{t('history.new')}</Button><LanguageSwitcher/></div>
+          <div className="header-actions"><Button variant="default" onClick={onNewConversation}>{t('history.new')}</Button><LanguageSwitcher/></div>
         </header>
-        {enableDevelopmentScenarioControls && <div className="exception-controls">
-          <div className="control-heading"><span>{t('chat.demoScenarios')}</span><span className="story-ref feature-list"><span>S2 정책 질의응답 (MVP)</span><span>S3 출처 표시 (MVP)</span><span>S4 거절 (MVP)</span><span>S7 조건 질문 (1차)</span><span>S9 충돌 안내 (1차)</span><span className="later-stage">S10 다중 턴 (Later · 2차)</span></span></div>
-          <div className="mode-buttons">
-            {(['NORMAL', 'CLARIFICATION', 'INSUFFICIENT_EVIDENCE', 'CONFLICTING_EVIDENCE', 'SYSTEM_ERROR'] as ChatMode[]).map((item) => (
-              <Button key={item} variant="ghost" className={mode === item ? 'active' : ''} onClick={() => selectMode(item)}>{item === 'NORMAL' ? t('chat.normal') : item}</Button>
-            ))}
-          </div>
-        </div>}
         <section className="conversation">
           <div className="conversation-inner">
             {messages.length === 0 && (
@@ -918,15 +807,14 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
                 <div className="welcome-mark"><Icon name="spark" size={23}/></div>
                 <h2>{t('chat.welcomeTitle')}</h2>
                 <p>{t('chat.welcomeBody')}</p>
-                {readyDocumentCount > 0 ? (
-                  <div className="example-questions">
-                    {exampleQuestions.map((item) => (
-                      <Button variant="ghost" className="example-question" key={item.question} onClick={() => submitRecommendedScenario(item)}>
-                        <span>{item.question}</span><Icon name="chevron" size={14}/>
+                <div className="example-questions">
+                    {exampleQuestions.map((question) => (
+                      <Button variant="ghost" className="example-question" key={question} onClick={() => submitQuestion(question)} disabled={loading}>
+                        <span>{question}</span><Icon name="chevron" size={14}/>
                       </Button>
                     ))}
-                  </div>
-                ) : (
+                </div>
+                {readyDocumentCount === 0 && (
                   <div className="no-documents-notice">
                     <span className="notice-icon"><Icon name="files" size={18}/></span>
                     <div><strong>{t('chat.noDocumentsTitle')}</strong><p>{t('chat.noDocumentsBody')}</p></div>
@@ -939,11 +827,8 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
               const responseState = message.responseStatus && message.responseStatus !== 'ANSWER'
                 ? automaticResponseContent[message.responseStatus]
                 : null
-              const developmentState = message.kind && message.kind !== 'NORMAL'
-                ? exceptionContent[message.kind]
-                : null
-              const renderedState = responseState ?? developmentState
-              const stateCode = responseState ? message.responseStatus : developmentState ? message.kind : null
+              const renderedState = responseState
+              const stateCode = responseState ? message.responseStatus : null
               return (
                 <div className={`message-row ${message.role}`} key={message.id}>
                   <div className={message.role === 'assistant' ? 'ai-avatar' : 'user-avatar'}>{message.role === 'assistant' ? <Icon name="spark" size={17}/> : t('chat.userAvatar')}</div>
@@ -951,11 +836,11 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
                     <div className="message-author">{message.role === 'assistant' ? 'Policy AI' : t('chat.consultant')}{message.role === 'assistant' && message.responseStatus !== 'NO_READY_DOCUMENTS' && message.responseStatus !== 'SYSTEM_ERROR' && <span>{t('chat.basedOnDocuments')}</span>}</div>
                     <div className={`message-bubble ${renderedState && stateCode ? `exception ${stateCode.toLowerCase()}` : ''}`}>
                       {renderedState && stateCode && <div className="exception-title"><span className="exception-symbol"><Icon name={stateCode === 'SYSTEM_ERROR' ? 'warning' : 'info'} size={17}/></span><strong>{renderedState.title}</strong><span className="exception-code">{stateCode}</span></div>}
-                      <div className="message-text">{renderedState ? renderedState.body : message.body}</div>
-                      {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={setSelectedCitation} key={id}/>)}</div>}
+                      <div className="message-text">{message.body || renderedState?.body || ''}</div>
+                      {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={(citationId) => { setCitationMessageId(message.id); setSelectedCitation(citationId) }} key={id}/>)}</div>}
                       {renderedState && <div className="exception-action">{renderedState.action}</div>}
                       {stateCode === 'NO_READY_DOCUMENTS' && <Button variant="default" className="retry-button" onClick={onOpenDocuments}><Icon name="files" size={16}/>{t('chat.goDocuments')}</Button>}
-                      {stateCode === 'SYSTEM_ERROR' && <Button variant="default" className="retry-button" onClick={() => responseState ? retryRequest(message.request) : selectMode('NORMAL')}><Icon name="retry" size={16}/>{t('chat.retry')}</Button>}
+                      {stateCode === 'SYSTEM_ERROR' && <Button variant="default" className="retry-button" onClick={() => retryRequest(message.request)}><Icon name="retry" size={16}/>{t('chat.retry')}</Button>}
                     </div>
                   </div>
                 </div>
@@ -966,7 +851,7 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
           </div>
         </section>
         <div className="composer-area">
-          <div className="composer-disclaimer"><Disclaimer showDemoTag={false}/></div>
+          <div className="composer-disclaimer"><Disclaimer/></div>
           <div className="composer">
             <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage() } }} placeholder={t('chat.input')} rows={1}/>
             <div className="composer-bottom"><div><Icon name="globe" size={15}/>{t('chat.languages')}</div><Button variant="primary" className="send-button" aria-label={t('chat.sendAria')} onClick={sendMessage} disabled={!input.trim() || loading}><Icon name="send" size={17}/></Button></div>
@@ -987,10 +872,52 @@ const submitRecommendedScenario = (scenario: RecommendedScenario) => {
 
 export default function App() {
   const [page, setPage] = useState<Page>('documents')
-  const [documents, setDocuments] = useState<DocumentItem[]>(initialDocuments)
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [documentsError, setDocumentsError] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(2)
-  const [conversations, setConversations] = useState<Conversation[]>(initialConversations)
-  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(initialConversations[0].id)
+  const documentsVersion = useRef(0)
+  const documentsRequest = useRef(0)
+  const updateDocuments: typeof setDocuments = (update) => {
+    documentsVersion.current += 1
+    setDocuments(update)
+  }
+  const loadDocuments = async () => {
+  const request = ++documentsRequest.current
+  const version = documentsVersion.current
+  try {
+    const apiDocuments = await getDocuments()
+
+    const converted = apiDocuments.map((doc) =>
+  convertC1Document(
+    doc,
+    Array.from(doc.document_id).reduce(
+      (hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0,
+      0
+    ),
+    '-'
+  )
+)
+
+    if (request !== documentsRequest.current || version !== documentsVersion.current) return
+    setDocuments(converted)
+    setDocumentsError(false)
+  } catch (error) {
+    if (request !== documentsRequest.current || version !== documentsVersion.current) return
+    console.error('Failed to load documents:', error)
+    setDocumentsError(true)
+  }
+}
+useEffect(() => {
+  void loadDocuments()
+
+  const timer = window.setInterval(() => {
+    void loadDocuments()
+  }, 3000)
+
+  return () => { window.clearInterval(timer); documentsRequest.current += 1 }
+}, [])
+  const [conversations, setConversations] = useState<Conversation[]>([{ id: 1, title: '', updatedAt: '', messages: [], isUntitled: true }])
+  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(1)
   const selected = useMemo(() => documents.find((document) => document.id === selectedId) ?? null, [documents, selectedId])
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null, [conversations, selectedConversationId])
 
@@ -1019,6 +946,7 @@ export default function App() {
     })
   }
 
+  
   return (
     <div className="app-shell">
       <Sidebar
@@ -1031,14 +959,23 @@ export default function App() {
         onNewConversation={newConversation}
         onDeleteConversation={deleteConversation}
       />
+
       {page === 'documents' ? (
-        <DocumentsPage documents={documents} setDocuments={setDocuments} selected={selected} setSelected={(document) => setSelectedId(document?.id ?? null)}/>
+        <DocumentsPage
+          documentsError={documentsError}
+          documents={documents}
+          setDocuments={updateDocuments}
+          selected={selected}
+          setSelected={(document) => setSelectedId(document?.id ?? null)}
+        />
       ) : (
         <ChatPage
           conversation={selectedConversation}
           onNewConversation={newConversation}
           onSetMessages={setConversationMessages}
-          readyDocumentCount={documents.filter((document) => document.status === 'Ready').length}
+          readyDocumentCount={
+            documents.filter((document) => document.status === 'Ready').length
+          }
           onOpenDocuments={() => setPage('documents')}
         />
       )}
