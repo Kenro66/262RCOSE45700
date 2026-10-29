@@ -1,4 +1,4 @@
-"""应用入口（Issue #7）。
+"""应用入口（Issue #7 + #9，基于2026-10-29最新依赖）。
 
 启动（先创建 backend/.env，见根目录 README）：
     docker compose --env-file backend/.env up -d postgres   # 在 repo 根目录
@@ -32,14 +32,17 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from app.adapters.embedding import embed_chunks  # Issue #10：BGE-M3 CPU（已合入 main）
+from app.adapters.embedding import embed_chunks as default_embed_chunks
 from app.api.documents import build_documents_router
+from app.api.chat import build_chat_router
+from app.chat.runtime import answer_question
 from app.database import DATABASE_URL, close_db, init_db
-from app.ingestion.chunker import chunk_pages  # 附带的 Issue #11 集成依赖，尚未合入本次基准 main
+from app.ingestion.chunker import chunk_pages as default_chunk_pages
 
 # Issue #4 骨架行为保留：日誌初始化（与已合并 Issue #4 的 main.py 一致）
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
+logging.getLogger("app").setLevel(logging.INFO)
 logger = logging.getLogger("app.main")
 
 CONNECT_TIMEOUT = 5  # 秒；数据库没启动时也让 /health 在几秒内给出明确结果
@@ -68,12 +71,19 @@ async def lifespan(app: FastAPI):
         await close_db()
 
 
-def create_app(chunk_pages, embed_chunks) -> FastAPI:
-    """构建应用；注入切分/向量化实现（Issue #10 / #11）。
+def create_app(chunk_pages=None, embed_chunks=None, answer_fn=None) -> FastAPI:
+    """构建应用；默认连接真实切分、嵌入、检索和问答。
 
     标题/版本沿用 Issue #4 骨架（Document-RAG-Chatbot 0.1.0）。"""
+    if chunk_pages is None:
+        chunk_pages = default_chunk_pages
+    if embed_chunks is None:
+        embed_chunks = default_embed_chunks
+    if answer_fn is None:
+        answer_fn = answer_question
     app = FastAPI(title="Document-RAG-Chatbot", version="0.1.0", lifespan=lifespan)
     app.include_router(build_documents_router(chunk_pages, embed_chunks), prefix="/api")
+    app.include_router(build_chat_router(answer_fn), prefix="/api")
 
     @app.get("/health")
     async def health():
@@ -115,4 +125,4 @@ def create_app(chunk_pages, embed_chunks) -> FastAPI:
 
 # 切分（Issue #11，app/ingestion/chunker.py）与向量化（Issue #10，app/adapters/embedding.py）
 # 均为真实实现；首次运行需下载 BAAI/bge-m3（tokenizer + 模型），离线部署请预置 EMBEDDING_CACHE_DIR。
-app = create_app(chunk_pages, embed_chunks)
+app = create_app()
