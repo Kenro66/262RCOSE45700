@@ -8,7 +8,7 @@ from typing import Any
 
 from ..adapters.generation import generate_text
 from ..contracts import ChatResponse, ChatStatus, DocumentRecord, SearchHit
-from .citation import build_evidence, has_cited_conclusions, resolve_citations
+from .citation import build_evidence, has_cited_conclusions, has_unsupported_numbers, resolve_citations
 from .prompts import build_messages, detect_language
 
 
@@ -89,4 +89,6 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
         raise AnswerError("Every generated sentence or line must have a valid evidence reference")
     if detect_language(cleaned) != language:
         raise AnswerError("Generated answer language does not match the question")
+    if has_unsupported_numbers(cleaned, citations):
+        return _insufficient(language)
     return ChatResponse(status=ChatStatus.ANSWERED, answer=cleaned, citations=citations)

@@ -5,12 +5,25 @@ import re
 
 from .citation import Evidence
 
+_QUOTED = re.compile(
+    r"《[^《》]*》|〈[^〈〉]*〉|「[^「」]*」|『[^『』]*』|"
+    r"“[^“”]*”|‘[^‘’]*’|\"[^\"\r\n]*\"|'[^'\r\n]*'"
+)
+
 
 def detect_language(question: str) -> str:
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be a nonempty string")
-    korean = len(re.findall(r"[\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f]", question))
-    chinese = len(re.findall(r"[\u3400-\u9fff]", question))
+    outside = question
+    while True:
+        stripped = _QUOTED.sub(" ", outside)
+        if stripped == outside:
+            break
+        outside = stripped
+    # A foreign policy title should not outweigh the surrounding question.
+    sample = outside if re.search(r"[\u3400-\u9fff\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f]", outside) else question
+    korean = len(re.findall(r"[\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f]", sample))
+    chinese = len(re.findall(r"[\u3400-\u9fff]", sample))
     if not korean and not chinese:
         raise ValueError("MVP questions must contain Chinese or Korean text")
     return "ko" if korean > chinese else "zh"

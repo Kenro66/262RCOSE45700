@@ -2,9 +2,11 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from math import isfinite
 import re
 from typing import Any
+import unicodedata
 
 from ..contracts import Citation, DocumentRecord, DocumentStatus, SearchHit
 
@@ -62,8 +64,9 @@ def resolve_citations(text: str, evidence: list[Evidence], documents: Mapping) -
     return cleaned, list(citations.values())
 
 
-def has_cited_conclusions(text: str) -> bool:
-    """Require a marker on each sentence/line; this is not semantic entailment."""
+def _conclusion_units(text: str) -> list[str]:
+    # Normalize only a validation copy; never rewrite the displayed answer or quote.
+    text = "\n".join(text.translate(str.maketrans({"｡": "。", "．": ".", "․": ".", "﹒": "."})).splitlines())
     boundary = re.compile(r"(?:[。！？!?]|\.(?!\d)|\n)[ \t]*(?:\[E\d+\][ \t]*)*")
     start = 0
     units = []
@@ -71,8 +74,37 @@ def has_cited_conclusions(text: str) -> bool:
         units.append(text[start:match.end()])
         start = match.end()
     units.append(text[start:])
-    for unit in units:
+    return units
+
+
+def has_cited_conclusions(text: str) -> bool:
+    """Require a marker on each sentence/line; this is not semantic entailment."""
+    for unit in _conclusion_units(text):
         content = REFERENCE.sub("", unit)
         if any(character.isalnum() for character in content) and not REFERENCE.search(unit):
             return False
     return True
+
+
+def _numbers(text: str) -> set:
+    text = unicodedata.normalize("NFKC", REFERENCE.sub("", text))
+    values = set()
+    for token in re.findall(r"[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?", text):
+        integer = token.split(".", 1)[0]
+        if "," in integer and not re.fullmatch(r"[0-9]{1,3}(?:,[0-9]{3})+", integer):
+            values.add(token)
+        else:
+            values.add(Decimal(token.replace(",", "")))
+    return values
+
+
+def has_unsupported_numbers(text: str, citations: Sequence[Citation]) -> bool:
+    """Limited numeral check, not verification of subject, units or legal meaning."""
+    quoted_numbers = {citation.evidence_id: _numbers(citation.quote) for citation in citations}
+    for unit in _conclusion_units(text):
+        supported = set()
+        for marker in REFERENCE.findall(unit):
+            supported.update(quoted_numbers.get(marker[1:-1], set()))
+        if not _numbers(unit).issubset(supported):
+            return True
+    return False
