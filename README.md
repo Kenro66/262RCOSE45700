@@ -13,7 +13,7 @@ A team project to build a document-based RAG chatbot with document upload, quest
 - 临时生成服务使用 OpenAI-compatible Chat Completions；学校 Baze 配置为已有测试方案，最终模型和 NPU 部署仍待确认。
 - 首次下载模型需要网络、足够磁盘和可用内存。CPU 推理耗时受机器及文档影响，不保证固定完成时间。
 - 外部生成服务会接收问题及检索证据，可能消耗额度；只处理获得授权的资料，使用本人或团队获准使用的密钥。
-- 当前基线前端仍有模拟上传/问答逻辑；后端可用不代表真实页面链路已经接通。前端真实接线见 Issue #15。
+- 前端真实接线依赖 PR #29；后端可用不代表页面链路已验收。真实页面联调记录见 Issue #15。
 
 ## 数据库与后端启动
 
@@ -240,12 +240,80 @@ Swagger验证不等于真实前端页面验收。
 session_id不提供多轮记忆，conversation.id仅用于页面记录不影响单轮RAG。
 学校网关密钥只能保存在后端，禁止进入前端构建或浏览器请求。
 
-## 前端启动与真实接线（待前端负责人补充）
+## 前端启动与真实后端联调
 
-当前main仍有Mock流程，不能将页面演示视为真实后端返回。
-请前端补充实际Node版本、安装/启动命令、访问地址和API代理/Origin配置，并由后端确认字段。
-当前Vite未配置API代理、后端入口未配置CORS；跨端口访问需确定同源代理或明确允许的Origin，不应直接承诺浏览器可连。
-本稿不虚构已完成的前端步骤，也不代替Issue #15。
+前端真实接线依赖 PR #29；合并后先更新本地代码。以下命令从仓库根目录开始，在数据库及后端启动之外，另开终端C运行前端，三个终端均保持运行。
+
+### 1. 安装前端依赖
+
+项目 `frontend/.mise.toml` 声明 Node.js 22；本机已完成类型检查和构建的环境为 Node.js 24.22.1、npm 11.19.1。使用 Node.js 22.12+ 或 24 的受支持版本。
+
+```powershell
+node --version
+npm.cmd --version
+cd frontend
+npm.cmd ci
+```
+
+`npm.cmd ci` 使用仓库内的 `package-lock.json` 安装依赖。PowerShell 如提示“禁止运行 npm.ps1”，使用 `npm.cmd` 即可，无需修改系统执行策略。
+
+### 2. 启动网页
+
+在 `frontend` 目录：
+
+```powershell
+npm.cmd run dev
+```
+
+默认访问 `http://127.0.0.1:8443`，以终端实际输出为准。开发服务器使用 HTTP；8443 不代表 HTTPS。默认端口被占用时会报错，可先关闭旧的前端进程，或在当前终端指定空闲端口：
+
+```powershell
+$env:PORT = '8444'
+npm.cmd run dev
+```
+
+随后访问 `http://127.0.0.1:8444`。停止服务使用 `Ctrl+C`。修改页面后通常自动更新；修改代理配置后需重启前端。
+
+### 3. 检查前端代理
+
+前端客户端请求相对地址 `/api`，由 `frontend/vite.config.ts` 中的开发服务器代理转发至后端8000端口，浏览器无需直接跨端口调用后端。
+
+如果后端 `http://127.0.0.1:8000/health` 正常，但页面加载文件列表失败，先将代理目标中的 `localhost` 改成 `127.0.0.1`：
+
+```ts
+proxy: {
+  '/api': {
+    target: 'http://127.0.0.1:8000',
+    changeOrigin: true,
+  },
+},
+```
+
+保存并重启 `npm.cmd run dev`。后端按上文监听 `127.0.0.1:8000`；Windows 上 `localhost` 可能解析至 IPv6，导致连接失败。
+
+可另开终端从网页的同源地址验证代理（自定义网页端口时相应替换8443）：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8000/health'
+Invoke-RestMethod 'http://127.0.0.1:8443/api/documents'
+```
+
+第二条返回文件数组，空库返回空数组。后端健康但代理失败时检查代理目标并重启前端；两者都失败时先查看数据库和后端日志。`npm.cmd run preview` 用于预览构建产物，不作为本说明的开发联调入口。
+
+### 4. 浏览器验收
+
+- Documents：选择 `data/` 中真实政策 PDF，确认列表出现处理中并自动变为可用；上传 `.docx` 应提示只支持 PDF；真实扫描件应显示失败及后端原因。
+- Chat：空对话显示4个固定示例问题，点击与手动输入均请求真实后端；答案由已上传且 READY 的文件决定，不预置成功或失败状态。
+- 验证 `ANSWERED`、`INSUFFICIENT_EVIDENCE`、`NO_READY_DOCUMENTS`；另按下文失败场景验证 `SYSTEM_ERROR`。有答案时核对文件名、物理页码和引文；连续两条回答后点击旧回答引用，确认显示旧回答自己的来源。
+- 删除：在自己的独立测试库删除本轮文件，确认列表及可用数量更新；全部删除后提问应提示没有可用文件。
+- 将本轮代码版本、实际测试结果和脱敏截图记录到 Issue #15；构建通过或页面可打开不等于以上操作已验收。字段仍需后端负责人确认。
+
+可在 `frontend` 目录检查构建：
+
+```powershell
+.\node_modules\.bin\tsc.cmd --noEmit
+npm.cmd run build
+```
 
 ## 失败场景验证与排查
 
