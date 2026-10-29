@@ -196,8 +196,11 @@ const enableDevelopmentScenarioControls = false
 function convertC5ChatResponse(data: C5ChatResponse): ChatResponse {
   return {
     // 后端 ANSWERED 对应前端 ANSWER
-    status: data.status === 'ANSWERED' ? 'ANSWER' : data.status,
-
+   status: data.status === 'ANSWERED'
+  ? 'ANSWER'
+  : ['NO_READY_DOCUMENTS', 'INSUFFICIENT_EVIDENCE', 'SYSTEM_ERROR'].includes(data.status)
+    ? data.status
+    : 'SYSTEM_ERROR',
     // 保存回答内容和后端提示信息
     answer: data.answer ?? undefined,
     message: data.message ?? undefined,
