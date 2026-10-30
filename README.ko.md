@@ -71,7 +71,14 @@ notepad backend/.env
 | `GENERATION_MODEL` | 사용 권한이 있는 모델명 |
 | `GENERATION_BASE_URL` | OpenAI 호환 API 루트 주소（`/chat/completions` 제외） |
 | `GENERATION_API_KEY` | 본인이 발급받은 키（저장소·캡처·채팅에 올리지 않음） |
+| `GENERATION_TIMEOUT_SECONDS` | `120` |
+| `EMBEDDING_BASE_URL` | **비워 둡니다.** 현재는 로컬 CPU 임베딩만 구현되어 있으며, NPU 주소를 넣어도 자동으로 전환되지 않습니다（값이 있으면 오류） |
+| `EMBEDDING_CACHE_DIR` | 선택. 모델 캐시 폴더（예：`D:/RAG-Dev/models/huggingface/hub`） |
 | `RETRIEVAL_TOP_K` | 기본값 5 |
+
+- 설정을 바꾼 뒤에는 백엔드를 다시 시작합니다. 같은 이름의 시스템 환경 변수가 있으면 `.env`보다 우선합니다.
+- 생성 서비스에는 질문과 검색된 근거 원문이 전송되며, 사용량（크레딧）이 소모될 수 있습니다. 업로드가 허가된 자료만 사용합니다.
+- 키는 로컬 `backend/.env`에만 둡니다. 프론트엔드, 캡처, 저장소에는 넣지 않습니다.
 
 ### 4.3 데이터베이스
 
@@ -102,15 +109,30 @@ npm.cmd run dev
 
 브라우저에서 `http://127.0.0.1:8443` 을 엽니다. `FIGMA_DEV_SERVER_HOST`를 지정하지 않으면 개발 서버가 같은 네트워크 전체에 열리므로, 로컬 확인용으로는 지정하는 것을 권장합니다.
 
+**프론트엔드 프록시 확인**：화면은 상대 주소 `/api`로 요청하고, Vite 개발 서버（`frontend/vite.config.ts`）가 이를 백엔드 8000번 포트로 전달합니다. 브라우저가 백엔드에 직접 접속하지 않으므로 별도의 CORS 설정은 필요 없습니다. 현재 프록시 대상은 `http://localhost:8000`이고 백엔드는 `127.0.0.1`에서 실행되므로, 일부 Windows 환경에서는 `localhost`가 IPv6로 해석되어 연결에 실패할 수 있습니다. `/health`는 정상인데 화면에서 문서 목록을 불러오지 못하면 프록시 대상을 다음과 같이 바꾸고 저장한 뒤 프론트엔드를 다시 시작합니다.
+
+```ts
+proxy: {
+  '/api': {
+    target: 'http://127.0.0.1:8000',
+    changeOrigin: true,
+  },
+},
+```
+
+확인：`Invoke-RestMethod 'http://127.0.0.1:8443/api/documents'` → 문서 배열（빈 DB는 빈 배열）
+
 ### 4.6 Windows 처음 설치 시 참고
 
-| 증상 | 해결 |
+아래는 2026-10-30 PM 노트북（Windows）에서 처음 설치할 때 실제로 겪은 문제와 그때 사용한 처리 방법입니다. 모든 PC에 필요한 단계가 아니며, 같은 증상이 나타날 때만 참고합니다.
+
+| 증상 | 그때 사용한 처리 방법과 주의점 |
 | --- | --- |
-| Docker Desktop 설치 중 "Virtual Machine Platform" 미활성화로 실패 | 설치 화면에서 **All-users installation** 선택 |
-| Docker Desktop 실행 시 "WSL not installed" | 관리자 PowerShell에서 `wsl --install --no-distribution` 실행 후 재부팅 |
-| DB 시작 시 `ports are not available ... 5432 ... forbidden` | 관리자 PowerShell에서 `net stop winnat` → DB 시작 → `net start winnat` |
-| pip 설치 중 `Read timed out` | 같은 명령을 `--timeout 120 --retries 10`을 붙여 다시 실행 |
-| PowerShell에서 한국어·중국어 응답이 깨져 보임 | Windows PowerShell 5.1 표시 문제이며, 웹 화면에서는 정상 표시 |
+| Docker Desktop 설치 중 "Virtual Machine Platform" 미활성화로 실패 | 설치 화면에서 **All-users installation**을 선택해 다시 설치했습니다（관리자 권한 필요）. 이 선택만으로 가상화 관련 문제가 항상 해결된다고 보장할 수는 없습니다. |
+| Docker Desktop 실행 시 "WSL not installed" | 화면 안내에 따라 관리자 PowerShell에서 `wsl --install --no-distribution`을 실행하고, 요청대로 재부팅했습니다. 이미 WSL이 정상 설치된 PC에서는 다시 설치할 필요가 없습니다. |
+| DB 시작 시 `ports are not available ... 5432 ... forbidden` | 먼저 `netstat -ano \| findstr :5432`로 다른 프로그램이 쓰는지, `netsh interface ipv4 show excludedportrange protocol=tcp`로 Windows 예약 범위에 들어가는지 확인합니다. 예약 범위 문제일 때만 관리자 PowerShell에서 `net stop winnat` → DB 시작 → `net start winnat`을 실행했습니다. `winnat`를 멈추면 WSL·Docker 등 관련 네트워크에 영향을 줄 수 있으므로, 처리 후 반드시 다시 시작합니다. |
+| pip 설치 중 `Read timed out` | 같은 명령에 `--timeout 120 --retries 10`을 붙여 다시 실행했습니다. |
+| PowerShell에서 한국어·중국어 응답이 깨져 보임 | Windows PowerShell 5.1의 터미널 인코딩과 관련이 있을 수 있습니다. 10/30 검수에서는 같은 응답이 웹 화면에서는 정상 표시되었습니다. |
 
 ## 5. 사용 방법
 
@@ -132,9 +154,12 @@ npm.cmd run dev
 
 ## 6. MVP 검증 결과（2026-10-30）
 
-- 팀원 1명（README 작성에 참여하지 않음）이 README만 보고 처음부터 설치해 웹 화면에서 PDF 업로드와 질문에 성공했습니다.
-- 스모크 테스트 10문항：모두 응답 반환, 상태 일치 9/10, 정답 8/10, 시스템 인용 14건의 페이지를 원본 PDF에서 사람이 확인했습니다.
-- 알려진 문제：Q003（예외 조건 누락）, Q008（답할 수 있는 질문을 거절）은 1차 개발에서 검색·근거 판단을 개선합니다.
+아래는 2026-10-30에 진행한 특정 검수 기록입니다. 다른 PC나 반복 실행에서 같은 결과를 보장하지 않습니다.
+
+- **처음부터 설치**：README 작성에 참여하지 않은 팀원 1명이 README만 보고 처음부터 설치해 웹 화면에서 PDF 업로드와 질문에 성공했습니다（main `5342801` 기준, [Issue #19](https://github.com/Kenro66/262RCOSE45700/issues/19)）.
+- **스모크 테스트 10문항**：모두 응답 반환, 상태 일치 9/10, 사람 판단 정답 8/10, 시스템 인용 14건의 페이지를 원본 PDF에서 사람이 확인했습니다（[Issue #18](https://github.com/Kenro66/262RCOSE45700/issues/18), [`eval/results/results.csv`](eval/results/results.csv), PR #37）.
+- 「인용 14건의 페이지가 맞다」는 것은 인용 위치가 정확하다는 뜻이며, 모든 답변의 사실과 조건이 전부 맞다는 뜻은 아닙니다.
+- **알려진 문제**：Q003（예외 조건 누락）, Q008（답할 수 있는 질문을 거절）. 1차 개발에서 검색·근거 판단을 개선합니다.
 
 ## 7. 한계와 보안
 
