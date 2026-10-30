@@ -140,9 +140,10 @@ export type ApiChatResponse = {
   message: string | null
 }
 
-export function sendChatMessage(message: string): Promise<ApiChatResponse> {
+export function sendChatMessage(message: string, signal?: AbortSignal): Promise<ApiChatResponse> {
   return apiRequest<ApiChatResponse>('/chat', {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
     },

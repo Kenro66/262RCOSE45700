@@ -35,6 +35,42 @@ class EmbeddingTests(unittest.TestCase):
                 with self.assertRaises(EmbeddingError):
                     embed_texts(["hello"])
 
+    def test_concurrent_calls_do_not_share_model_state_at_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier, Lock
+        from time import sleep
+
+        start = Barrier(2)
+        guard = Lock()
+        active = 0
+        peak = 0
+
+        def encode(texts, **kwargs):
+            nonlocal active, peak
+            with guard:
+                active += 1
+                peak = max(peak, active)
+            try:
+                sleep(0.03)
+                return {"dense_vecs": np.ones((len(texts), 1024))}
+            finally:
+                with guard:
+                    active -= 1
+
+        model = Mock()
+        model.encode.side_effect = encode
+
+        def run(text):
+            start.wait(timeout=3)
+            return embed_texts([text])
+
+        with patch("app.adapters.embedding._model", return_value=model):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                jobs = [pool.submit(run, text) for text in ["upload", "question"]]
+                results = [job.result(timeout=3) for job in jobs]
+        self.assertEqual(peak, 1)
+        self.assertEqual([len(rows[0]) for rows in results], [1024, 1024])
+
     def test_invalid_input(self):
         for texts in ("hello", [""], ["  "], [None]):
             with self.subTest(texts=texts), self.assertRaises(ValueError):
