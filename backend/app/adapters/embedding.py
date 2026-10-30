@@ -2,12 +2,16 @@
 
 from functools import lru_cache
 from math import isfinite
+from threading import Lock
 from typing import TYPE_CHECKING
 
 from .config import required, settings
 
 if TYPE_CHECKING:
     from ..contracts import Chunk, EmbeddingRecord
+
+
+_inference_lock = Lock()
 
 
 class EmbeddingError(RuntimeError):
@@ -50,9 +54,13 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         raise EmbeddingError("Remote embedding service is not configured: NPU API protocol is pending; leave EMBEDDING_BASE_URL blank for CPU")
     try:
         cache_dir = config.get("EMBEDDING_CACHE_DIR", "").strip() or None
-        output = _model(name, cache_dir, cpu_threads).encode(texts, batch_size=batch, max_length=max_length,
-                                     return_dense=True, return_sparse=False, return_colbert_vecs=False)
-        vectors = output["dense_vecs"].tolist()
+        # Model initialization and inference share mutable PyTorch/Transformers state.
+        # lru_cache alone can run the initializer twice on concurrent cache misses.
+        with _inference_lock:
+            output = _model(name, cache_dir, cpu_threads).encode(
+                texts, batch_size=batch, max_length=max_length,
+                return_dense=True, return_sparse=False, return_colbert_vecs=False)
+            vectors = output["dense_vecs"].tolist()
     except EmbeddingError:
         raise
     except Exception as exc:

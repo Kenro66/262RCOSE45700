@@ -619,7 +619,7 @@ function CitationPanel({
       </div>
 
       <div className="citation-tabs">
-        {items.slice(0, 2).map((item) => (
+        {items.map((item) => (
           <Button
             key={item.id}
             variant="ghost"
@@ -690,6 +690,8 @@ function ChatPage({
   const { t } = useI18n()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const activeChatRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => { activeChatRequest.current?.abort() }, [])
   const [selectedCitation, setSelectedCitation] = useState(1)
   const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
@@ -737,11 +739,14 @@ function ChatPage({
   question: string
 ) => {
   setLoading(true)
+  const controller = new AbortController()
+  activeChatRequest.current = controller
   setCitationMessageId(null)
   setSelectedCitation(1)
 
   try {
-    const result = await sendChatMessage(question)
+    const result = await sendChatMessage(question, controller.signal)
+    if (controller.signal.aborted) return
     const response = convertC5ChatResponse(result)
 
     const body = response.status === 'ANSWER'
@@ -762,6 +767,7 @@ function ChatPage({
       },
     ])
   } catch (error) {
+    if (controller.signal.aborted) return
     console.error('Chat API request failed:', error)
 
     onSetMessages(conversationId, (current) => [
@@ -836,7 +842,9 @@ const sendMessage = () => submitQuestion(input)
                     <div className="message-author">{message.role === 'assistant' ? 'Policy AI' : t('chat.consultant')}{message.role === 'assistant' && message.responseStatus !== 'NO_READY_DOCUMENTS' && message.responseStatus !== 'SYSTEM_ERROR' && <span>{t('chat.basedOnDocuments')}</span>}</div>
                     <div className={`message-bubble ${renderedState && stateCode ? `exception ${stateCode.toLowerCase()}` : ''}`}>
                       {renderedState && stateCode && <div className="exception-title"><span className="exception-symbol"><Icon name={stateCode === 'SYSTEM_ERROR' ? 'warning' : 'info'} size={17}/></span><strong>{renderedState.title}</strong><span className="exception-code">{stateCode}</span></div>}
-                      <div className="message-text">{message.body || renderedState?.body || ''}</div>
+                      <div className="message-text">{message.role === 'assistant'
+                        ? (message.body || renderedState?.body || '').replace(/\[E\d+\]/gi, '').trim()
+                        : message.body}</div>
                       {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={(citationId) => { setCitationMessageId(message.id); setSelectedCitation(citationId) }} key={id}/>)}</div>}
                       {renderedState && <div className="exception-action">{renderedState.action}</div>}
                       {stateCode === 'NO_READY_DOCUMENTS' && <Button variant="default" className="retry-button" onClick={onOpenDocuments}><Icon name="files" size={16}/>{t('chat.goDocuments')}</Button>}
@@ -939,11 +947,15 @@ useEffect(() => {
   }
 
   const deleteConversation = (conversationId: number) => {
-    setConversations((current) => {
-      const remaining = current.filter((conversation) => conversation.id !== conversationId)
-      if (selectedConversationId === conversationId) setSelectedConversationId(remaining[0]?.id ?? null)
-      return remaining
-    })
+    const remaining = conversations.filter((conversation) => conversation.id !== conversationId)
+    if (remaining.length === 0) {
+      const emptyConversation: Conversation = { id: Date.now(), title: '', updatedAt: '', messages: [], isUntitled: true }
+      setConversations([emptyConversation])
+      setSelectedConversationId(emptyConversation.id)
+      return
+    }
+    setConversations(remaining)
+    if (selectedConversationId === conversationId) setSelectedConversationId(remaining[0].id)
   }
 
   
@@ -970,6 +982,7 @@ useEffect(() => {
         />
       ) : (
         <ChatPage
+          key={selectedConversation?.id ?? 'empty'}
           conversation={selectedConversation}
           onNewConversation={newConversation}
           onSetMessages={setConversationMessages}
