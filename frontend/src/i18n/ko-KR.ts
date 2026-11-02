@@ -25,7 +25,7 @@ export const koKR: Record<TranslationKey, string> = {
   'conversation.deleteBody': '“{title}” 및 모든 메시지가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
   'upload.compact': 'PDF를 여기에 끌어놓거나',
   'upload.title': '정책 PDF를 여기에 끌어놓으세요',
-  'upload.hint': '하나 이상의 PDF 파일 지원, 파일당 최대 20 MB',
+  'upload.hint': '하나 이상의 PDF 파일 지원, 파일당 최대 25 MB',
   'upload.select': '파일 선택',
   'upload.browse': '파일 찾기',
   'upload.pdfOnly': 'PDF 파일만 업로드할 수 있습니다.',

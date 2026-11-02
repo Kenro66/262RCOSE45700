@@ -23,7 +23,7 @@ export const zhCN = {
   'conversation.deleteBody': '“{title}”及其中的所有消息将被删除，此操作无法撤销。',
   'upload.compact': '拖放 PDF 到此处，或',
   'upload.title': '将政策 PDF 拖放到这里',
-  'upload.hint': '支持单个或多个 PDF 文件，单个文件不超过 20 MB',
+  'upload.hint': '支持单个或多个 PDF 文件，单个文件不超过 25 MB',
   'upload.select': '选择文件',
   'upload.browse': '浏览文件',
   'upload.pdfOnly': '仅支持上传 PDF 文件。',
