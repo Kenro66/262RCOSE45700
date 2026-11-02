@@ -295,7 +295,7 @@ button { color: inherit; }
 .ai-note { margin: 7px auto 0; max-width: 760px; text-align: center; color: #aaa7a2; font-size: 8px; }
 
 .source-count { color: #9a9792; font-size: 9px; }
-.citation-tabs { display: flex; border-bottom: 1px solid var(--border); margin: -5px 0 17px; }
+.citation-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin: -5px 0 17px; }
 .citation-tabs .button { min-width: 40px; min-height: 32px; border-radius: 0; padding: 0; color: #9a9792; }
 .citation-tabs .button.active { color: var(--red); border-bottom-color: var(--red); }
 .citation-card { border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 14px; box-shadow: 0 4px 16px rgba(28,25,23,.03); }

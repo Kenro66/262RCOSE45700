@@ -144,6 +144,25 @@ function getErrorMessage(data: unknown): string | undefined {
   return undefined
 }
 
+function localizeBackendMessage(message: string | undefined, t: (key: TranslationKey) => string): string | undefined {
+  if (!message) return undefined
+  const localizedKeys: Record<string, TranslationKey> = {
+    '文件不是 PDF 类型': 'upload.pdfOnly',
+    '文件不是 PDF 文件': 'upload.pdfOnly',
+    '文件无法打开，请检查文件或密码后重试。': 'details.cannotOpen',
+    '未检测到可提取文字，请上传包含文字的PDF文件。': 'details.noExtractableText',
+    '超过一半页面无法提取文字，请检查PDF文件后重新上传。': 'details.extractionFailed',
+    '上传失败,请重试!': 'upload.failed',
+    '文件名不能超过 255 个字符': 'upload.filenameTooLong',
+    'PDF exceeds the 25 MB limit': 'upload.tooLarge',
+    'Uploaded PDF is empty': 'upload.empty',
+    '数据库暂时不可用，请稍后重试': 'common.databaseUnavailable',
+    '原文件暂时无法删除，请稍后重试': 'documents.sourceDeleteFailed',
+  }
+  const key = localizedKeys[message]
+  return key ? t(key) : message
+}
+
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const paths: Record<string, React.ReactNode> = {
     files: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></>,
@@ -348,7 +367,7 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
       </div>
       {document.status === 'Ready' && <div className="process-summary"><div className="summary-icon"><Icon name="check" size={16}/></div><div><strong>{t('details.readyTitle')}</strong><p>{t('details.readyBody')}</p></div></div>}
       {document.status === 'Processing' && <div className="process-summary processing"><span className="spinner"/><div><strong>{t('details.processingTitle')}</strong><p>{t('details.processingBody')}</p><div className="progress"><span/></div></div></div>}
-      {document.status === 'Failed' && <div className="process-summary failed"><div className="summary-icon"><Icon name="warning" size={16}/></div><div><strong>{t('details.failedTitle')}</strong><p>{document.errorMessage ?? t('details.failedBody')}</p></div></div>}
+      {document.status === 'Failed' && <div className="process-summary failed"><div className="summary-icon"><Icon name="warning" size={16}/></div><div><strong>{t('details.failedTitle')}</strong><p>{localizeBackendMessage(document.errorMessage, t) ?? t('details.failedBody')}</p></div></div>}
     </aside>
   )
 }
@@ -376,7 +395,7 @@ function DocumentsPage({
   const handleUpload = async (file: File) => {
   // 上传前检查文件格式
   if (!file.name.toLowerCase().endsWith('.pdf')) {
-    alert('仅支持上传 PDF 文件。')
+    alert(t('upload.pdfOnly'))
     return
   }
 
@@ -401,7 +420,7 @@ setSelected(item)
 } catch (error) {
   console.error('Failed to upload document:', error)
  const errorData = getApiErrorData(error)
-const errorMessage = getErrorMessage(errorData) ?? 'PDF 上传失败，请检查后端服务后重试。'
+const errorMessage = localizeBackendMessage(getErrorMessage(errorData), t) ?? t('upload.failed')
 
 alert(errorMessage)
 } finally {
@@ -413,7 +432,7 @@ alert(errorMessage)
   if (!deleting) return
 
   if (!deleting.documentId) {
-    alert('该文件没有后端 document_id，无法执行真实删除。')
+    alert(t('documents.missingId'))
     return
   }
 
@@ -431,7 +450,8 @@ alert(errorMessage)
     setDeleting(null)
   } catch (error) {
     console.error('Failed to delete document:', error)
-    alert('删除失败，请检查后端服务。')
+    const errorMessage = localizeBackendMessage(getErrorMessage(getApiErrorData(error)), t)
+    alert(errorMessage ?? t('documents.deleteFailed'))
   }
 }
 return (
@@ -478,8 +498,8 @@ return (
   <div role="alert" className="process-summary failed">
     <Icon name="warning" size={16}/>
     <div>
-      <strong>无法连接文档服务</strong>
-      <p>暂时无法获取真实文件列表，请检查后端服务后重试。</p>
+      <strong>{t('documents.connectionTitle')}</strong>
+      <p>{t('documents.connectionBody')}</p>
     </div>
   </div>
 )}
@@ -499,7 +519,7 @@ return (
             <UploadZone compact onUpload={handleUpload}/>
             {uploading && <div className="upload-progress"><span className="spinner"/><div><strong>{t('documents.uploading')}</strong><small>{t('documents.indexing')}</small></div><div className="progress"><span/></div></div>}
             <div className="list-toolbar">
-              <div className="search-group"><div className="search-box"><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('documents.search')}/></div><span className="later-label">Later</span></div>
+              <div className="search-group"><div className="search-box"><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('documents.search')}/></div><span className="later-label">{t('common.later')}</span></div>
               <div className="list-meta">{t('documents.recent')} <Icon name="chevron" size={14}/></div>
             </div>
             <div className="document-table">
@@ -619,7 +639,7 @@ function CitationPanel({
       </div>
 
       <div className="citation-tabs">
-        {items.slice(0, 2).map((item) => (
+        {items.map((item) => (
           <Button
             key={item.id}
             variant="ghost"
@@ -690,6 +710,8 @@ function ChatPage({
   const { t } = useI18n()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const activeChatRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => { activeChatRequest.current?.abort() }, [])
   const [selectedCitation, setSelectedCitation] = useState(1)
   const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
@@ -737,11 +759,14 @@ function ChatPage({
   question: string
 ) => {
   setLoading(true)
+  const controller = new AbortController()
+  activeChatRequest.current = controller
   setCitationMessageId(null)
   setSelectedCitation(1)
 
   try {
-    const result = await sendChatMessage(question)
+    const result = await sendChatMessage(question, controller.signal)
+    if (controller.signal.aborted) return
     const response = convertC5ChatResponse(result)
 
     const body = response.status === 'ANSWER'
@@ -762,6 +787,7 @@ function ChatPage({
       },
     ])
   } catch (error) {
+    if (controller.signal.aborted) return
     console.error('Chat API request failed:', error)
 
     onSetMessages(conversationId, (current) => [
@@ -836,7 +862,9 @@ const sendMessage = () => submitQuestion(input)
                     <div className="message-author">{message.role === 'assistant' ? 'Policy AI' : t('chat.consultant')}{message.role === 'assistant' && message.responseStatus !== 'NO_READY_DOCUMENTS' && message.responseStatus !== 'SYSTEM_ERROR' && <span>{t('chat.basedOnDocuments')}</span>}</div>
                     <div className={`message-bubble ${renderedState && stateCode ? `exception ${stateCode.toLowerCase()}` : ''}`}>
                       {renderedState && stateCode && <div className="exception-title"><span className="exception-symbol"><Icon name={stateCode === 'SYSTEM_ERROR' ? 'warning' : 'info'} size={17}/></span><strong>{renderedState.title}</strong><span className="exception-code">{stateCode}</span></div>}
-                      <div className="message-text">{message.body || renderedState?.body || ''}</div>
+                      <div className="message-text">{message.role === 'assistant'
+                        ? (message.body || renderedState?.body || '').replace(/\[E\d+\]/gi, '').trim()
+                        : message.body}</div>
                       {message.citations && <div className="message-citations">{message.citations.map((id) => <CitationMarker id={id} onSelect={(citationId) => { setCitationMessageId(message.id); setSelectedCitation(citationId) }} key={id}/>)}</div>}
                       {renderedState && <div className="exception-action">{renderedState.action}</div>}
                       {stateCode === 'NO_READY_DOCUMENTS' && <Button variant="default" className="retry-button" onClick={onOpenDocuments}><Icon name="files" size={16}/>{t('chat.goDocuments')}</Button>}
@@ -871,6 +899,7 @@ const sendMessage = () => submitQuestion(input)
 }
 
 export default function App() {
+  const { t } = useI18n()
   const [page, setPage] = useState<Page>('documents')
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [documentsError, setDocumentsError] = useState(false)
@@ -922,7 +951,7 @@ useEffect(() => {
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null, [conversations, selectedConversationId])
 
   const newConversation = () => {
-    const conversation: Conversation = { id: Date.now(), title: '', updatedAt: '刚刚', messages: [], isUntitled: true }
+    const conversation: Conversation = { id: Date.now(), title: '', updatedAt: t('common.justNow'), messages: [], isUntitled: true }
     setConversations((current) => [conversation, ...current])
     setSelectedConversationId(conversation.id)
     setPage('chat')
@@ -934,16 +963,20 @@ useEffect(() => {
       const messages = typeof update === 'function' ? update(conversation.messages) : update
       const firstUserMessage = messages.find((message) => message.role === 'user')?.body
       const title = firstUserMessage ? `${firstUserMessage.slice(0, 18)}${firstUserMessage.length > 18 ? '…' : ''}` : ''
-      return { ...conversation, messages, title, updatedAt: '刚刚', isUntitled: !firstUserMessage }
+      return { ...conversation, messages, title, updatedAt: t('common.justNow'), isUntitled: !firstUserMessage }
     }))
   }
 
   const deleteConversation = (conversationId: number) => {
-    setConversations((current) => {
-      const remaining = current.filter((conversation) => conversation.id !== conversationId)
-      if (selectedConversationId === conversationId) setSelectedConversationId(remaining[0]?.id ?? null)
-      return remaining
-    })
+    const remaining = conversations.filter((conversation) => conversation.id !== conversationId)
+    if (remaining.length === 0) {
+      const emptyConversation: Conversation = { id: Date.now(), title: '', updatedAt: '', messages: [], isUntitled: true }
+      setConversations([emptyConversation])
+      setSelectedConversationId(emptyConversation.id)
+      return
+    }
+    setConversations(remaining)
+    if (selectedConversationId === conversationId) setSelectedConversationId(remaining[0].id)
   }
 
   
@@ -970,6 +1003,7 @@ useEffect(() => {
         />
       ) : (
         <ChatPage
+          key={selectedConversation?.id ?? 'empty'}
           conversation={selectedConversation}
           onNewConversation={newConversation}
           onSetMessages={setConversationMessages}
