@@ -8,7 +8,8 @@ import re
 from typing import Any
 import unicodedata
 
-from ..contracts import Citation, DocumentRecord, DocumentStatus, SearchHit
+from ..contracts import Chunk, Citation, DocumentRecord, DocumentStatus, SearchHit
+from .evidence_completion import SupplementalEvidence
 
 
 REFERENCE = re.compile(r"\[E\d+\]")
@@ -17,18 +18,30 @@ REFERENCE = re.compile(r"\[E\d+\]")
 @dataclass(frozen=True)
 class Evidence:
     evidence_id: str
-    hit: SearchHit
+    hit: SearchHit | Chunk
 
 
-def build_evidence(hits: Sequence[SearchHit | dict[str, Any]]) -> list[Evidence]:
+def validate_hits(hits: Sequence[SearchHit | dict[str, Any]]) -> list[SearchHit]:
     if not isinstance(hits, (list, tuple)):
         raise ValueError("Retrieval must return a list or tuple of SearchHit")
-    evidence = []
+    validated = []
     for row in hits:
         hit = SearchHit.model_validate(row)
         if not hit.chunk_id.strip() or not hit.document_id.strip() or not hit.text.strip() or not isfinite(hit.score):
             raise ValueError("Retrieval returned invalid evidence")
-        evidence.append(Evidence(f"E{len(evidence) + 1}", hit))
+        validated.append(hit)
+    return validated
+
+
+def build_evidence(hits: Sequence[SearchHit | dict[str, Any]]) -> list[Evidence]:
+    return [Evidence(f"E{index}", hit) for index, hit in enumerate(validate_hits(hits), 1)]
+
+
+def assemble_evidence(initial: list[SearchHit], supplemental: Sequence[SupplementalEvidence]) -> list[Evidence]:
+    evidence = build_evidence(initial)
+    existing = {hit.chunk_id for hit in initial}
+    if len(supplemental) == 1 and supplemental[0].chunk.chunk_id not in existing:
+        evidence.append(Evidence(f"E{len(evidence) + 1}", supplemental[0].chunk))
     return evidence
 
 
