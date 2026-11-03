@@ -1,0 +1,533 @@
+{
+  "mode": "LLM-only; model knowledge without PDF retrieval",
+  "started_at_utc": "2026-11-03T00:50:26.787749+00:00",
+  "completed_at_utc": "2026-11-03T00:53:12.019430+00:00",
+  "model": "gpt-6-sol",
+  "questions_sha256": "0f1ef047c6491e9ec25a8c8bed463d364825e8eb02129801c98e38426f431a29",
+  "prompt_sha256": "aba73d19933282e9557f2940c062a8d9fe37e6fe3bb1bd9c79f0cca847876cad",
+  "gold_answers_sent_to_model": false,
+  "retrieved_evidence_sent_to_model": false,
+  "question_count_requested": 40,
+  "questions": [
+    {
+      "id": "P001",
+      "question": "한국 여행자의 일반 휴대품 기본면세범위는 미화 얼마까지인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국에 입국하는 여행자의 일반 휴대품 기본 면세범위는 1인당 미화 800달러까지입니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.094
+    },
+    {
+      "id": "P002",
+      "question": "한국 입국 여행자가 별도 면세범위로 가져올 수 있는 향수는 최대 몇 mL인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국 입국 여행자가 별도 면세범위로 반입할 수 있는 향수는 최대 100mL입니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 2.281
+    },
+    {
+      "id": "P003",
+      "question": "한국에 입국하는 일반 여행자의 주류 별도 면세범위에서 용량과 총 가격 기준은 각각 얼마인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국에 입국하는 일반 여행자의 주류 별도 면세범위는 **총 2L 이하, 총 가격 미화 400달러 이하**입니다. 두 기준을 모두 충족해야 합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 2.656
+    },
+    {
+      "id": "P004",
+      "question": "동반가족이 함께 한국에 입국하는 경우, 세관신고를 대표자 한 명이 일괄해서 할 수 있나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "네. 동반가족이 함께 한국에 입국하면 대표자 한 명이 가족의 신고 대상 휴대품을 일괄 신고할 수 있습니다. 다만 가족 구성원 각각의 신고 대상 물품을 빠짐없이 알려야 하며, 면세 한도는 가족 합산이 아닌 개인별로 적용됩니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.719
+    },
+    {
+      "id": "P005",
+      "question": "한국 입국 시 신고대상 물품이 없더라도 세관장이 신고서 제출을 요구하면 어떻게 해야 하나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "신고대상 물품이 없더라도 세관장이 신고서 제출을 요구하면, 내용을 사실대로 작성해 제출해야 합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.469
+    },
+    {
+      "id": "P006",
+      "question": "한국 입국 단체 학생여행에서 대표자 1명이 일괄 신고하려면 어떤 조건이 필요한가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "학생 단체여행이라고 해서 대표자 1명이 무조건 일괄 신고할 수 있는 것은 아닙니다. 세관이 허용하는 단체 신고 대상이어야 하고, 대표자는 학생별 신고 대상 물품이 있는지 확인해야 합니다. 면세범위 초과 물품이나 반입 제한 물품이 있다면 별도 신고가 필요할 수 있습니다.\n\n필요한 인원·연령 기준과 제출 서류 등 구체적 요건은 현재 확인할 자료가 없어 단정하기 어렵습니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 5.531
+    },
+    {
+      "id": "P007",
+      "question": "한국에 입국하면서 별송품이나 미검수하물이 있으면 신고서에 적어 제출해야 하나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "네. 한국 입국 시 별송품이나 미검수하물이 있으면 여행자 휴대품 신고서에 해당 내용을 적어 세관에 제출해야 합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.391
+    },
+    {
+      "id": "P008",
+      "question": "한국에 입국하는 일반 여행자가 해외에서 취득한 물품의 총액이 800달러를 넘으면 신고대상인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "네. 일반 여행자가 해외에서 취득해 한국으로 가져오는 물품의 **면세 대상 총액이 미화 800달러를 넘으면** 세관에 신고해야 합니다. 통상 면세한도를 초과한 금액에 대해 세금이 부과됩니다.\n\n다만 여행 중 사용한 개인용품처럼 별도로 판단되는 물품이나 주류·담배·향수처럼 별도 면세기준이 적용되는 품목은 단순히 같은 방식으로 합산하지 않습니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.89
+    },
+    {
+      "id": "P009",
+      "question": "한국에 판매 목적으로 사용할 물품을 휴대해 입국하면 세관에 신고해야 하나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "네. 한국에 **판매할 목적으로 반입하는 물품**은 여행자 휴대품 면세 대상인 개인 사용 물품과 다르므로, 입국 시 세관에 신고해야 합니다. 물품의 종류와 수량에 따라 별도의 수입신고와 관세·부가가치세 납부가 필요할 수 있습니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.391
+    },
+    {
+      "id": "P010",
+      "question": "한국 세관의 담배 신고 규정에서 “만 19세 미만”의 예외는 언제부터 적용되나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "‘만 19세 미만’ 예외의 **정확한 적용 시작일**은 현재 확인할 근거가 없어 단정할 수 없습니다. 특정 규정의 시행일을 묻는 것이라면 해당 규정의 개정·시행일을 확인해야 합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.093
+    },
+    {
+      "id": "P011",
+      "question": "한국 입국장에서 휴대품 전자신고를 하는 사람을 위한 통로는 무엇인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "휴대품을 전자신고한 여행자는 입국장의 **전자신고 전용 통로**를 이용합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.375
+    },
+    {
+      "id": "P012",
+      "question": "한국에 입국하며 신고대상물품을 신고하지 않아 과세되는 경우, 법정 특별요건에 따른 가산세율은 몇 퍼센트인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "법정 특별요건인 **반복 미신고**에 해당하면 가산세율은 **60%**입니다. 일반적인 미신고 가산세율은 40%입니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.688
+    },
+    {
+      "id": "P013",
+      "question": "한국 세관이 유치한 여행자 휴대품의 기본 장치기간은 얼마나 되나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국 세관에 유치된 여행자 휴대품의 기본 장치기간은 **1개월**로 알고 있습니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.203
+    },
+    {
+      "id": "P014",
+      "question": "한국 세관에 예치한 휴대품의 장치기간은 어떤 기간을 기준으로 정해지나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국 세관에 예치한 휴대품의 장치기간은 일반적으로 **여행자의 국내 체류기간, 즉 출국 예정일까지의 기간**을 고려해 정해집니다. 다만 실제로 지정되는 기간과 연장 가능 여부는 예치할 때 세관에 확인해야 합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 5.5
+    },
+    {
+      "id": "P015",
+      "question": "한국 입국 여행자의 농림축수산물·한약재 등 면세 기준상 총중량과 전체 취득가격 한도는 얼마인가요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국 입국 여행자가 반입하는 농림축수산물·한약재 등의 면세 기준은 **총중량 40kg 이내, 전체 취득가격 10만 원 이내**입니다. 품목별 한도와 검역 요건도 충족해야 합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.985
+    },
+    {
+      "id": "P016",
+      "question": "한국 입국 시 한약 면세범위는 해외취득가격과 품목 수가 각각 얼마 이하여야 하나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국 입국 시 한약의 면세범위는 전체 해외취득가격이 **10만 원 이하**이고, **품목 수가 10개 이하**인 경우로 알고 있습니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 5.125
+    },
+    {
+      "id": "P017",
+      "question": "한국에 함께 입국하는 가족 2명 이상이 800달러를 넘는 물품 한 개를 반입하면 면세 판단 시 어떻게 보나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "면세한도 800달러는 여행자 **1인별**로 적용됩니다. 가족 2명 이상이 함께 입국해도 한 개 물품에 각자의 면세한도를 합산할 수는 없습니다. 따라서 그 물품의 가격이 800달러를 넘으면 면세 대상이 아니며, 물품 가격 전체를 기준으로 과세 여부를 판단합니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 6.234
+    },
+    {
+      "id": "P018",
+      "question": "한국 입국 시 자진 신고한 여행자의 영수증 가격은 원칙적으로 어떻게 인정되나요?",
+      "language": "ko",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "한국 입국 시 자진 신고한 여행자가 제시한 구매 영수증의 가격은 원칙적으로 실제 구매가격으로 인정됩니다. 다만 영수증의 진위나 가격의 신빙성에 의문이 있으면 세관이 추가 자료를 확인해 과세가격을 판단할 수 있습니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.062
+    },
+    {
+      "id": "P019",
+      "question": "按照入库的中国税收办法，居民旅客带入的境外购买行李物品，一般免税总值上限是多少人民币？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般免税总值上限为人民币 **5,000元**，适用于居民旅客从境外购买并携带入境、供个人自用的行李物品。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.375
+    },
+    {
+      "id": "P020",
+      "question": "非居民旅客入境中国内地，拟留在境内的行李物品一般免税总值是多少人民币以内？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "非居民旅客入境中国内地，拟留在境内的个人自用行李物品，一般在总值人民币 **2,000元以内**可免税；还需符合自用、合理数量等条件。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.203
+    },
+    {
+      "id": "P021",
+      "question": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "从香港或澳门入境中国内地的旅客，香烟（含加热卷烟）免税数量通常为**合计200支**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 5.062
+    },
+    {
+      "id": "P022",
+      "question": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量为每人每次 **10支**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 5.0
+    },
+    {
+      "id": "P023",
+      "question": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从韩国入境中国内地，雪茄的免税限量通常为 **100支**。我未核实最新规定；如果近期有政策调整，应以入境时海关公布的标准为准。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 6.844
+    },
+    {
+      "id": "P024",
+      "question": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从韩国入境中国内地，烟丝的免税限量为 **500克**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.875
+    },
+    {
+      "id": "P025",
+      "question": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量为每人每次2个。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.297
+    },
+    {
+      "id": "P026",
+      "question": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多可携带 **6个**，合计烟液容量不超过 **12毫升**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.485
+    },
+    {
+      "id": "P027",
+      "question": "成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "成年经常出入境人员进入中国内地，电子烟免税限量为：烟具 **1个**，烟液总量 **不超过2毫升**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 7.359
+    },
+    {
+      "id": "P028",
+      "question": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料的免税限量为 **1.5升**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.015
+    },
+    {
+      "id": "P029",
+      "question": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料的免税限量为 **0.75升**。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.719
+    },
+    {
+      "id": "P030",
+      "question": "成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "不能。成年经常出入境人员携带12度以上酒精饮料进入中国内地，不享受该类饮料的免税额度；这不等于一律禁止携带，能否携带及是否需缴税，应以入境时海关的具体规定和认定为准。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 5.218
+    },
+    {
+      "id": "P031",
+      "question": "中国的进境行李超过规定免税总值时，是对全部物品征税，还是只对超出部分征税？不可分割的单件物品呢？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "一般情况下，进境行李物品超过适用的免税总值时，**只对超出部分征税**，不是对全部物品征税。\n\n但如果超出限额的是**不可分割的单件物品**，该件物品应按**全额**计税，不能只对超过限额的那部分计税。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.984
+    },
+    {
+      "id": "P032",
+      "question": "经中国海关核准的复进境行李物品，是否计入一般免税总值？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "不计入。经中国海关核准的复进境行李物品，通常不占用旅客一般行李物品的免税总值额度；是否属于复进境物品，以海关核准结果为准。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.578
+    },
+    {
+      "id": "P033",
+      "question": "按照进境物品税收办法，应征税额为50元人民币的寄递物品，海关是否予以免税放行？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "不予免税放行。“应征税额在50元以下”才免税，恰好50元不属于“50元以下”，应按规定缴税。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 6.047
+    },
+    {
+      "id": "P034",
+      "question": "中国海关对经常出入境人员的定义是多长时间内入境超过一次？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "中国海关所说的“经常出入境人员”，通常指**15日内入境超过一次**的人员。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.172
+    },
+    {
+      "id": "P035",
+      "question": "在实行红绿通道申报的中国内地口岸，旅客携带超过免税限额的物品入境，应怎样申报、走哪个通道？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "旅客应主动向海关申报所携物品，按口岸要求填写申报信息，并走**红色通道（申报通道）**接受海关查验；需要缴税的，按海关核定结果办理。不要走绿色通道。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 3.078
+    },
+    {
+      "id": "P036",
+      "question": "以分离运输方式携带行李入境中国内地，获海关同意后，应自本人入境日起几个月内办结手续？",
+      "language": "zh",
+      "qtype": "QType-01",
+      "answerable": true,
+      "response": {
+        "answer": "应自本人入境之日起 **6个月内** 办结手续。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.703
+    },
+    {
+      "id": "P037",
+      "question": "일본으로 입국할 때 여행자의 향수 면세 한도는 몇 mL인가요?",
+      "language": "ko",
+      "qtype": "QType-05",
+      "answerable": false,
+      "response": {
+        "answer": "일본 입국 시 여행자의 향수 면세 한도는 **2온스(약 56mL)**입니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 2.375
+    },
+    {
+      "id": "P038",
+      "question": "태국 입국 시 주류 면세 한도는 몇 리터인가요?",
+      "language": "ko",
+      "qtype": "QType-05",
+      "answerable": false,
+      "response": {
+        "answer": "태국 입국 시 주류 면세 한도는 여행자 1인당 1리터입니다.",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 2.547
+    },
+    {
+      "id": "P039",
+      "question": "新加坡旅客入境时可以免税携带多少支香烟？",
+      "language": "zh",
+      "qtype": "QType-05",
+      "answerable": false,
+      "response": {
+        "answer": "需要先确认入境目的地。如果是**入境新加坡**，香烟没有免税额度，即 **0 支**；携带香烟须申报并缴税。如果是**新加坡籍旅客入境其他国家**，免税额度取决于目的地，而不是旅客国籍。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.297
+    },
+    {
+      "id": "P040",
+      "question": "越南入境的旅客可以免税携带多少升酒类？",
+      "language": "zh",
+      "qtype": "QType-05",
+      "answerable": false,
+      "response": {
+        "answer": "越南入境旅客的酒类免税限量通常按酒精度区分：酒精度 **20%及以上为1.5升**，**低于20%为2升**；**啤酒及其他酒精饮料为3升**。未满18岁的旅客不适用酒类免税额度。",
+        "citations": []
+      },
+      "outcome": "COMPLETED",
+      "elapsed_seconds": 4.094
+    }
+  ]
+}
