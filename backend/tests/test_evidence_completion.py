@@ -65,8 +65,20 @@ class RuleTests(unittest.TestCase):
                 self.assertEqual(find_supplemental(self.initial, [self.source, negative]), [])
 
     def test_local_scope_inside_note_is_rejected(self):
-        negative = self.target.model_copy(update={'text': self.target.text.replace('이하 같다', '이 항에서만 이하 같다')})
-        self.assertEqual(find_supplemental(self.initial, [self.source, negative]), [])
+        for scope in ('편', '장', '절', '관', '조', '항', '호', '목'):
+            with self.subTest(scope=scope):
+                negative = self.target.model_copy(update={'text': self.target.text.replace(
+                    '이하 같다', f'이 {scope}에서만 이하 같다')})
+                self.assertEqual(find_supplemental(self.initial, [self.source, negative]), [])
+
+    def test_local_scope_in_source_or_candidate_title_is_rejected(self):
+        for scope in ('편', '장', '절', '관', '조', '항', '호', '목'):
+            for role in ('source', 'candidate'):
+                with self.subTest(scope=scope, role=role):
+                    title = f'이 {scope}에서만 적용'
+                    source = self.source.model_copy(update={'section_title': title}) if role == 'source' else self.source
+                    target = self.target.model_copy(update={'section_title': title}) if role == 'candidate' else self.target
+                    self.assertEqual(find_supplemental(self.initial, [source, target]), [])
 
     def test_note_markers_must_be_inside_adjacent_parenthesis(self):
         text = self.target.text.replace('제외한다. 이하 같다)', '제외한다). 이하 같다')

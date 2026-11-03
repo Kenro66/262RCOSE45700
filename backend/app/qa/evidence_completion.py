@@ -14,7 +14,7 @@ PRODUCT = re.compile(r"(?<![가-힣])(술|담배|향수)(?=[\s,ㆍ및은는을�
 # Unknown identity/scope qualifications are not interpreted as universal definitions.
 QUALIFIED = re.compile(
     r"승무원|쿠리어|내국인|외국인|비거주자|거주자|우범여행자|단체여행자|"
-    r"이\s*(?:조|항|호|목)(?:에서|에\s*한)|이\s*경우|한정|한하여|한해서|경우에만"
+    r"이\s*(?:편|장|절|관|조|항|호|목)(?:에서|에\s*한)|이\s*경우|한정|한하여|한해서|경우에만"
 )
 ARTICLE = re.compile(r"第[一二三四五六七八九十百零〇0-9]+条")
 ENUMERATION = re.compile(r"^[ \t]*[（(]([一二三四五六七八九十0-9]+)[）)]", re.MULTILINE)
