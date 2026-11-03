@@ -3,12 +3,15 @@
 import inspect
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from ..adapters.generation import generate_text
+from ..adapters.config import settings
 from ..contracts import ChatResponse, ChatStatus, DocumentRecord, SearchHit
-from .citation import build_evidence, has_cited_conclusions, has_unsupported_numbers, resolve_citations
+from .citation import assemble_evidence, validate_hits, has_cited_conclusions, has_unsupported_numbers, resolve_citations
+from .evidence_completion import SupplementalEvidence
 from .prompts import build_messages, detect_language
 
 
@@ -19,6 +22,8 @@ class AnswerError(RuntimeError):
 Retrieval = Callable[[str], Awaitable[Sequence[SearchHit | dict[str, Any]]]]
 DocumentLookup = Callable[[list[str]], Awaitable[Mapping[str, DocumentRecord | Mapping[str, Any]]]]
 Generator = Callable[[list[dict[str, str]]], str | Awaitable[str]]
+Completion = Callable[[Sequence[SearchHit]], Awaitable[Sequence[SupplementalEvidence]]]
+logger = logging.getLogger(__name__)
 
 
 async def _generate(function: Generator, messages: list[dict[str, str]]) -> str:
@@ -46,7 +51,8 @@ def _insufficient(language: str) -> ChatResponse:
 
 
 async def answer(question: str, session_id: str | None = None, *, retrieve_fn: Retrieval | None = None,
-                 get_documents_fn: DocumentLookup | None = None, generate_fn: Generator | None = None) -> ChatResponse:
+                 get_documents_fn: DocumentLookup | None = None, generate_fn: Generator | None = None,
+                 complete_evidence_fn: Completion | None = None) -> ChatResponse:
     """Await backend retrieval/metadata; offload the existing synchronous generator."""
     language = detect_language(question)
     if session_id is not None and (not isinstance(session_id, str) or not session_id.strip()):
@@ -57,7 +63,20 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
     generator = generate_text if generate_fn is None else generate_fn
     if not callable(generator):
         raise AnswerError("generate_fn must be callable")
-    evidence = build_evidence(await retrieve_fn(question))
+    initial_hits = validate_hits(await retrieve_fn(question))
+    supplemental: Sequence[SupplementalEvidence] = ()
+    if (initial_hits and settings().get("EVIDENCE_COMPLETION_ENABLED", "false").strip().lower() == "true"
+            and complete_evidence_fn is not None):
+        try:
+            supplemental = await complete_evidence_fn(tuple(hit.model_copy(deep=True) for hit in initial_hits))
+            if not isinstance(supplemental, (list, tuple)) or len(supplemental) > 1:
+                raise ValueError("Completion must return at most one supplemental source")
+            if any(not isinstance(item, SupplementalEvidence) for item in supplemental):
+                raise ValueError("Invalid supplemental source")
+        except Exception:
+            logger.warning("Evidence completion failed; retaining Initial retrieval", exc_info=True)
+            supplemental = ()
+    evidence = assemble_evidence(initial_hits, supplemental)
     if not evidence:
         return _insufficient(language)
     document_ids = list(dict.fromkeys(item.hit.document_id for item in evidence))

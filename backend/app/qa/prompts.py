@@ -10,6 +10,21 @@ _QUOTED = re.compile(
     r"“[^“”]*”|‘[^‘’]*’|\"[^\"\r\n]*\"|'[^'\r\n]*'"
 )
 
+_DEFINITION_SCOPE = {
+    "zh": (
+        "当证据对某个术语、年龄范围、身份或条件给出定义、排除项，或使用‘以下同’等后续适用说明时，"
+        "后续证据再次使用同一术语时，应按照该定义或排除项解释；"
+        "除非证据明确限定其适用范围或提供不同定义。"
+        "不得自行将该定义或排除项缩小为仅适用于首次出现它的申报、程序或局部规定。"
+    ),
+    "ko": (
+        "증거에서 용어, 연령 범위, 신분 또는 조건에 대한 정의나 제외 대상, '이하 같다'와 같은 후속 적용 설명을 제시하면, "
+        "뒤에서 같은 용어를 사용하는 조항도 그 정의나 제외 대상을 반영하여 해석하세요. "
+        "다만 증거가 특정 조항에만 적용된다고 명시하거나 다른 정의를 명시한 경우에는 그 범위를 따르세요. "
+        "해당 정의나 제외 대상을 처음 등장한 신고·절차 등의 국소 규정에만 적용되는 것으로 임의로 좁히지 마세요."
+    ),
+}
+
 
 def detect_language(question: str) -> str:
     if not isinstance(question, str) or not question.strip():
@@ -57,6 +72,7 @@ def build_messages(question: str, language: str, evidence: list[Evidence]) -> li
         "증거가 부족하면 insufficient_evidence를 true로 설정하세요. 코드 블록이나 추가 필드는 금지합니다."
     )
     policy += "\n回答正文必须使用中文。" if language == "zh" else "\n답변 본문은 한국어로 작성하세요."
+    policy += "\n" + _DEFINITION_SCOPE[language]
     payload = {"question": question, "evidence": [
         {"evidence_id": item.evidence_id, "text": item.hit.text} for item in evidence]}
     return [{"role": "system", "content": policy},

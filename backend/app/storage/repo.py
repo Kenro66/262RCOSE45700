@@ -20,6 +20,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.contracts import Chunk as ContractChunk
 from app.contracts import DocumentRecord, DocumentStatus, SearchHit
 from app.database import SessionFactory
 from app.storage.models import Chunk, Document, ParsedPage
@@ -308,3 +309,19 @@ async def get_document_chunks(
             .order_by(Chunk.chunk_index)
         )
         return list((await session.scalars(statement)).all())
+
+
+async def get_ready_chunk_sources(
+    document_ids: list[str],
+    session_factory: SessionMaker = SessionFactory,
+) -> list[ContractChunk]:
+    """Read original C2 metadata/text only; never load embeddings or non-READY files."""
+    if not document_ids:
+        return []
+    columns = [getattr(Chunk, name) for name in ContractChunk.model_fields]
+    statement = (select(*columns).join(Document, Document.document_id == Chunk.document_id)
+                 .where(Chunk.document_id.in_(set(document_ids)), Document.status == DocumentStatus.READY.value)
+                 .order_by(Chunk.document_id, Chunk.chunk_index))
+    async with session_factory() as session:
+        rows = (await session.execute(statement)).mappings().all()
+        return [ContractChunk.model_validate(row) for row in rows]
