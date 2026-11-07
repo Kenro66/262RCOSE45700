@@ -28,6 +28,40 @@ from app.qa.citation import Evidence
 from app.qa.orchestrator import answer
 
 ROOT = Path(__file__).resolve().parents[2]
+CONFIG_DEFAULTS = {
+    "GENERATION_MODEL":"", "GENERATION_BASE_URL":"", "GENERATION_TIMEOUT_SECONDS":"60",
+    "EMBEDDING_MODEL":"", "EMBEDDING_DIMENSION":"1024", "EMBEDDING_BATCH_SIZE":"1",
+    "EMBEDDING_MAX_LENGTH":"8192", "EMBEDDING_CPU_THREADS":"1", "EMBEDDING_CACHE_DIR":"",
+    "EMBEDDING_BASE_URL":"", "RETRIEVAL_TOP_K":"5", "EVIDENCE_COMPLETION_ENABLED":"false",
+}
+
+
+def evaluation_configuration():
+    config=settings()
+    return {key:config.get(key,default) for key,default in CONFIG_DEFAULTS.items()}
+
+
+def verify_frozen(manifest):
+    if not manifest:
+        return
+    if evaluation_configuration()!=manifest["configuration"]:
+        raise RuntimeError("Frozen evaluation configuration changed")
+    for relative,digest in manifest["source_sha256"].items():
+        if hashlib.sha256((ROOT/relative).read_bytes()).hexdigest()!=digest:
+            raise RuntimeError("Frozen evaluation source changed: "+relative)
+
+
+async def dataset_fingerprint():
+    from sqlalchemy import text
+    async with RealRAG("read-only evaluation inventory") as runtime:
+        async with runtime.session_factory() as session:
+            row=(await session.execute(text(
+                "SELECT count(*) AS chunks, md5(string_agg(chunk_id || ':' || md5(text) || ':' || "
+                "md5(coalesce(embedding::text,'')), '|' ORDER BY chunk_id)) AS checksum FROM chunks"))).mappings().one()
+            docs=(await session.execute(text(
+                "SELECT document_id,filename,status FROM documents ORDER BY document_id"))).mappings().all()
+            readonly=(await session.execute(text("SHOW transaction_read_only"))).scalar()
+    return dict(chunks=row["chunks"],checksum=row["checksum"],documents=[dict(d) for d in docs],transaction_read_only=readonly)
 
 
 async def execute(case, arm, record, save, *, completion=True):
@@ -178,17 +212,61 @@ async def definition_cases(args, record, save):
                               "accepted":row.get("workflow_sufficient")}),flush=True)
 
 
+async def preflight_cases(args,record,save):
+    baseline=json.loads(Path(args.retrieval_input).read_text(encoding="utf-8"))
+    for case in baseline["cases"]:
+        if case["qid"] not in args.cases:
+            continue
+        old=next(r for r in case["runs"] if r["arm"]=="agent")
+        sources=[Evidence(f"E{i}",SearchHit.model_validate(h)) for i,h in enumerate(old["retrieval_calls"][0]["hits"],1)]
+        state=dict(question=case["question"],conditions={},current_query=case["question"],retrieval_count=1,
+                   evidence=sources,documents={},evidence_check_result={},seen_queries=[])
+        row=dict(qid=case["qid"],question=case["question"],source_ids=[e.hit.chunk_id for e in sources])
+        record["cases"].append(row)
+        def generate(messages):
+            raw=generate_text(messages); row["raw_llm_output"]=raw; return raw
+        t=time.perf_counter()
+        async with RealRAG(case["question"]) as runtime:
+            try:
+                result=await Nodes(Dependencies(runtime.retrieve,runtime.documents,generate)).check_evidence(state)
+                row.update(status="VERIFIED",workflow_sufficient=result["sufficient"],assessment=result["evidence_check_result"])
+            except Exception as exc:
+                row.update(status="TECHNICAL_ERROR",**safe_error(exc))
+        row["seconds"]=round(time.perf_counter()-t,3); save()
+        print(json.dumps(dict(qid=case["qid"],status=row["status"],accepted=row.get("workflow_sufficient"))),flush=True)
+
+
 async def main(args):
     path = Path(args.output).resolve()
     path.parent.mkdir(parents=True,exist_ok=True)
     config = settings()
+    manifest=json.loads(Path(args.frozen_manifest).read_text(encoding="utf-8")) if args.frozen_manifest else None
+    if manifest:
+        verify_frozen(manifest)
+        if args.mode=="pilot" and args.cases!=manifest["cases"]:
+            raise RuntimeError("Frozen Pilot question selection changed")
+        # Lock service configuration in this process; never persist credentials.
+        for key,value in manifest["configuration"].items():
+            os.environ[key]=value
+        for private_key in ("DATABASE_URL","GENERATION_API_KEY"):
+            if config.get(private_key) is not None:
+                os.environ[private_key]=config[private_key]
     record = dict(experiment=args.mode, started_at_utc=datetime.now(timezone.utc).isoformat(), model=config.get("GENERATION_MODEL"),
                   embedding_model=config.get("EMBEDDING_MODEL"), top_k=config.get("RETRIEVAL_TOP_K","5"), cases=[])
     record["source_sha256"] = {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()
                               for p in (ROOT/"backend/app/qa/agent").glob("*.py")}
+    record["frozen_manifest"] = manifest
     def save():
         path.write_text(json.dumps(record,ensure_ascii=False,indent=2),encoding="utf-8")
     save()
+    if manifest:
+        record["dataset_before"]=await dataset_fingerprint()
+        if record["dataset_before"]!=manifest["dataset"]:
+            record["fatal_error"]="FROZEN_DATASET_CHANGED"; save()
+            raise RuntimeError("Frozen dataset changed before evaluation")
+    if args.mode == "preflight":
+        await preflight_cases(args,record,save)
+        return
     if args.mode == "definitions":
         await definition_cases(args,record,save)
         return
@@ -207,10 +285,19 @@ async def main(args):
         record["cases"].append(row)
         arms = ["agent"] if args.mode == "rewrite" else (["agent","single"] if index%2==0 else ["single","agent"])
         for arm in arms:
+            verify_frozen(manifest)
             run = {}
             row["runs"].append(run)
             await execute(case,arm,run,save,completion=args.mode != "rewrite")
             print(json.dumps({"qid":case["qid"],"arm":arm,"status":run.get("status"),"retrieval":run.get("retrieval_count"),"seconds":run.get("seconds")}),flush=True)
+    verify_frozen(manifest)
+    if manifest:
+        record["dataset_after"]=await dataset_fingerprint()
+        if record["dataset_after"]!=manifest["dataset"]:
+            record["fatal_error"]="FROZEN_DATASET_CHANGED"; save()
+            raise RuntimeError("Frozen dataset changed during evaluation")
+    record["completed"]=True
+    save()
 
 
 if __name__ == "__main__":
@@ -219,11 +306,12 @@ if __name__ == "__main__":
     os.environ["LANGSMITH_TRACING"] = "false"
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode",choices=("rewrite","conflicts","pilot","definitions"),required=True)
+    parser.add_argument("--mode",choices=("rewrite","conflicts","pilot","definitions","preflight"),required=True)
     parser.add_argument("--output",required=True)
     parser.add_argument("--cases",nargs="+",default=["Q003"])
     parser.add_argument("--retrieval-input")
+    parser.add_argument("--frozen-manifest")
     options = parser.parse_args()
-    if options.mode == "definitions" and not options.retrieval_input:
-        parser.error("definitions requires --retrieval-input")
+    if options.mode in ("definitions","preflight") and not options.retrieval_input:
+        parser.error("definitions/preflight requires --retrieval-input")
     asyncio.run(main(options))

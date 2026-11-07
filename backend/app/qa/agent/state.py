@@ -61,6 +61,7 @@ class AgentState(StrictModel):
     session_id: str | None = None
     question_id: str | None = None
     conditions: dict[str, Any] = Field(default_factory=dict)
+    retrieval_queries: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_cache(self):
@@ -92,18 +93,20 @@ class ConditionsDecision(StrictModel):
 
 
 class EvidenceSupport(StrictModel):
-    evidence_id: str
-    quote: str = Field(min_length=1)
+    chunk_id: str = Field(min_length=1)
 
 
 class EvidenceCoverage(StrictModel):
     status: Literal["supported", "missing", "not_required"]
+    affects_core: bool
     reason: str = Field(min_length=1)
     support: list[EvidenceSupport]
 
 
 class EvidenceDecision(StrictModel):
-    sufficient: bool
+    verdict: Literal["SUFFICIENT", "MISSING_CRITICAL", "UNSUPPORTED"]
+    core_claim: str = Field(min_length=1)
+    core_support: list[EvidenceSupport]
     definitions: EvidenceCoverage
     exceptions: EvidenceCoverage
     applicability: EvidenceCoverage
@@ -130,6 +133,7 @@ class GraphState(TypedDict):
     question_id: str
     conditions: dict[str, Any]
     current_query: str
+    seen_queries: list[str]
     retrieval_count: int
     clarification_count: int
     evidence: list[Evidence]

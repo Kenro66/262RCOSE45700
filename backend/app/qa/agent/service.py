@@ -22,6 +22,7 @@ def snapshot(state: GraphState) -> AgentState:
         evidence=[CachedEvidence(evidence_id=e.evidence_id, hit=e.hit) for e in state["evidence"]],
         question=state["question"], session_id=state["session_id"], question_id=state["question_id"],
         conditions=state["conditions"],
+        retrieval_queries=state.get("seen_queries",[]),
     )
 
 
@@ -59,7 +60,7 @@ async def agent_answer(
     query = question + ("\nConditions: " + json.dumps(merged, ensure_ascii=False, sort_keys=True) if merged else "")
     initial: GraphState = dict(
         question=question, session_id=session_id, question_id=question_id or f"q_{uuid4().hex}",
-        conditions=merged, current_query=query, retrieval_count=saved.retrieval_count,
+        conditions=merged, current_query=query, seen_queries=list(saved.retrieval_queries), retrieval_count=saved.retrieval_count,
         clarification_count=saved.clarification_count,
         evidence=[Evidence(e.evidence_id, e.hit.model_copy(deep=True)) for e in saved.evidence],
         documents={}, sufficient=False, evidence_check_result={}, missing_conditions=[], status=None, answer=None,

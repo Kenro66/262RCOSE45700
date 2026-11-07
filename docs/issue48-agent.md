@@ -94,7 +94,7 @@ messages 最后一条 user content 是 JSON，包含 task、question、condition
 | task | JSON |
 | --- | --- |
 | check_conditions / check_applicability | `{"missing_conditions": []}`，或 questions 对象数组 |
-| check_evidence | `{"sufficient": true}` |
+| check_evidence | 当前 `EvidenceDecision`：verdict、core_claim、core_support、四类 coverage、missing_evidence；以 state.py Schema 为准 |
 | rewrite_query | `{"query": "保留原问题及补充条件的查询"}` |
 | check_conflict | `{"conflict": null}`，或 reason/side_a/side_b 对象 |
 | generate_answer | `{"answer": "有原文支持的回答。[E1]", "insufficient_evidence": false}` |
@@ -199,3 +199,21 @@ python scripts/evaluate_agent_quality.py --mode definitions --cases Q003 --retri
 ```
 
 整批 Pilot 原始成绩与后续诊断复测应分别保存。不得用修订后的单题最好结果替换整批中的失败；报告需注明整批代码哈希、最终守卫差异，以及是否已整批重跑。
+
+## 第五阶段：核心结论与稳定来源选择（当前内部契约）
+
+修改前根因分析分别核对了首次 Retrieval 原文和每个审计分项：旁支群体定义、扣减程序被误当成核心额度前提；部分小数点缺失实际来自模型抄写，而非来源文本。
+
+当前 EvidenceDecision 使用三种 verdict：
+
+- SUFFICIENT：可信来源足以支持所问核心结论与真正影响该结论的限定，立即进入后续节点。
+- MISSING_CRITICAL：缺少能改变当前结论的必要前提，才允许改写与补检索。
+- UNSUPPORTED：资料不支持该国家/主题的政策，正常返回证据不足，不无限改写。
+
+core_claim 是当前需要证明的最小结论；core_support 及 coverage.support 仅返回 canonical chunk_id。程序严格校验该 ID 属于当前可信 Evidence，再提取 evidence_id 和完整原文。LLM 不再重复抄写审计 quote，因此不会因序号句号、换行或小数点转录产生定位错误。返回 Citation 仍沿用原 Resolver 与原文；答案的每句引用、语言和数字校验继续开启。
+
+coverage 增加 affects_core。一般旅客的明确额度不要求预先定义所有特殊群体；无法改变所问阈值的旁支条款不能触发 Rewrite。数值字面量从可信来源抽取后传给模型，不从模型摘录恢复小数。数值年龄问题仍从其所选可信定义来源检查年龄类别定义/排除语境，不能只凭主限制句放行。
+
+GraphState 和后端 AgentState 记录已执行查询（retrieval_queries），防止相同查询在恢复后重复消耗预算；保留最多 3 次 Retrieval、1 轮 Clarification。重复 Rewrite 查询会正常终止，不进行重复调用。
+
+评测固定版本应提交到独立分支，并保存非敏感配置、代码/题集 SHA-256 与只读知识库校验和。`--frozen-manifest` 会在每个模式调用前检查源文件，在整个进程内锁定配置，并核对整批前后数据指纹；密钥只保存在进程环境，不写入 manifest。每轮完整 12 题独立计算，不拼接最佳单题结果。

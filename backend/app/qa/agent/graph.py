@@ -23,6 +23,8 @@ def build_graph(nodes: Nodes):
         return "retrieve" if state["retrieval_count"] < 3 else "insufficient"
 
     def evidence_route(state):
+        if state["status"] is not None:
+            return "finalize"
         if state["sufficient"]:
             return "check_applicability"
         return "rewrite_query" if state["retrieval_count"] < 3 else "insufficient"
@@ -39,8 +41,9 @@ def build_graph(nodes: Nodes):
     builder.add_conditional_edges("retrieve", lambda s: "finalize" if s["status"] else "check_evidence",
                                   ["finalize", "check_evidence"])
     builder.add_conditional_edges("check_evidence", evidence_route,
-                                  ["check_applicability", "rewrite_query", "insufficient"])
-    builder.add_edge("rewrite_query", "retrieve")
+                                  ["finalize", "check_applicability", "rewrite_query", "insufficient"])
+    builder.add_conditional_edges("rewrite_query", lambda s: "finalize" if s["status"] else "retrieve",
+                                  ["finalize", "retrieve"])
     builder.add_conditional_edges("check_applicability", applicability_route,
                                   ["finalize", "clarify", "check_conflict"])
     builder.add_conditional_edges("check_conflict", lambda s: "finalize" if s["status"] else "generate_answer",
