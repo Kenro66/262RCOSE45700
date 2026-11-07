@@ -162,4 +162,40 @@ python scripts/validate_agent_real.py --phase decisions --tasks check_evidence r
 
 runner 不写数据库、不上传文件、不保存状态；金标准不发送给 LLM。引用核查通过 evidence_id 对应的 document_id 定位 `uploads/<document_id>.pdf`，核对物理页、规范化空白后的原文及与 data/ PDF 的 SHA-256 一致性。不能仅靠上传显示名拼接仓库文件路径。
 
-运行记录应同时保留失败与修正后的结果。当前独立验证仍不等同于全部第一批验收：真实 True Conflict、跨请求预算的真实后端保存、广泛问题集、LLM 判断稳定性需要后续继续验证。尤其 Q003 在移除补全的实验中出现 Evidence Check 假阳性，当前流程依赖已有 Completion 补回关键定义；不能据此宣称 Evidence Check 已可靠识别所有缺失例外。
+运行记录应同时保留失败与修正后的结果。第三阶段独立验证不等同于全部第一批验收；其 Q003 缺少定义的假阳性及其他质量问题在第四阶段继续验证。
+
+## 第四阶段：证据质量审计与评测
+
+EvidenceDecision 已由单个 sufficient 布尔值扩展为内部结构化审计：definitions、exceptions、applicability、complete_answer，各含 status（supported/missing/not_required）、reason、support（evidence_id、原文 quote）；另有 missing_evidence。
+
+- 任一必要分项 missing、有未解决 missing_evidence、complete_answer 未被支持或 supported 无来源时，不能仅凭 sufficient=true 放行。
+- supported 的证据编号及摘录文字必须能在来源定位；内部比较容忍转义换行及非数字内部的标点差异，但保留小数点/千分位，不能改动字词或数字。返回 Citation.quote 仍直接取原文，Citation Resolver 的公共规则未变。
+- 审计只要求可能改变所问结论的定义与例外，不要求检索整部法规、无关品类或全部交叉引用。年龄/身份类别的主限制本身不代表已给出该类别的定义。
+- GraphState 保存 evidence_check_result 及 accepted_sufficient；下一次 Rewrite 会看到具体缺失项。该执行诊断不是跨请求公共状态契约。
+- Conflict 的 side_a/side_b schema 要求 bare E# 编号（不带方括号、原文或解释），并保留已有双边来源/范围校验。
+
+`scripts/evaluate_agent_quality.py` 提供显式真实模型实验：
+
+```powershell
+# 关闭 Completion 的压力实验，实际执行真实 Retrieval / LLM / Rewrite。
+python scripts/evaluate_agent_quality.py --mode rewrite --cases Q003 Q008 --output <output>/rewrite.json
+
+# 四组 TEST ONLY 合成证据；绝不写入正式文档或数据库。
+python scripts/evaluate_agent_quality.py --mode conflicts --output <output>/conflicts.json
+
+# 预先固定的 Pilot 子集，交替执行两种模式的先后顺序。
+python scripts/evaluate_agent_quality.py --mode pilot --cases P001 P002 P003 P006 P009 P019 P022 P028 P031 P035 P037 P039 --output <output>/pilot.json
+```
+
+Pilot 两个模式共享模型、原问题、文档、top_k 和 Completion。模型预热在计时外，金标准只写进评测文件供核查，不传入生成输入。每题保存答案、引用、每次查询/Chunk、模型输出、状态、累计预算及耗时；需对照固定 gold 标准另做正确性评审。真实网关没有设置固定采样种子，单轮子集结果不能外推全部问题准确率或稳定延迟。
+
+失败实验不得覆盖或删除。明确区分节点探针、完整真实 Graph、合成证据的真实 LLM 判断，以及确定性 Mock 测试；达到检索上限仍无法恢复证据时，INSUFFICIENT_EVIDENCE 是正确的停止行为。
+
+提示词修订后仍观察到模型把年龄限制当作年龄定义，因此最终节点增加通用的数值年龄类别守卫：问题明确使用年龄阈值时，definitions 支持项必须含对应年龄及定义/括号排除语境；仅重述优惠限制不能代替定义。不固定年龄、文档、页码或答案。该校验仍属保守启发式，需要继续测试其他法规表达和语言覆盖。
+
+```powershell
+# 实际 check_evidence 节点：真实 LLM + 真实只读 Document Lookup，记录原始与最终判断。
+python scripts/evaluate_agent_quality.py --mode definitions --cases Q003 --retrieval-input <output>/retrieval.json --output <output>/definitions.json
+```
+
+整批 Pilot 原始成绩与后续诊断复测应分别保存。不得用修订后的单题最好结果替换整批中的失败；报告需注明整批代码哈希、最终守卫差异，以及是否已整批重跑。

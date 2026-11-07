@@ -57,7 +57,13 @@ class MockLLM:
                        (self.missing_post and task == "check_applicability"))
             result = {"missing_conditions": [CONDITION] if missing and not data["conditions"].get("destination_country") else []}
         elif task == "check_evidence":
-            result = {"sufficient": data["retrieval_count"] >= self.sufficient_at}
+            supported = {"status": "supported", "reason": "Mock source supports the answer", "support": [
+                {"evidence_id": data["evidence"][0]["evidence_id"], "quote": data["evidence"][0]["source"]["text"]}]}
+            not_required = {"status": "not_required", "reason": "Synthetic test has no additional definition", "support": []}
+            sufficient = data["retrieval_count"] >= self.sufficient_at
+            result = {"sufficient": sufficient, "definitions": not_required, "exceptions": not_required,
+                      "applicability": supported, "complete_answer": supported,
+                      "missing_evidence": [] if sufficient else ["More source evidence required"]}
         elif task == "rewrite_query":
             result = {"query": data["question"] + " 改写" + str(data["retrieval_count"]) + json.dumps(data["conditions"])}
         elif task == "check_conflict":

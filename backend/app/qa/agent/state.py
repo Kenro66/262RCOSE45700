@@ -1,6 +1,6 @@
 """Agent-only models; persistent state is separate from the execution graph."""
 
-from typing import Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -34,8 +34,8 @@ class Clarification(StrictModel):
 
 class Conflict(StrictModel):
     reason: str = Field(min_length=1)
-    side_a: list[str] = Field(min_length=1)
-    side_b: list[str] = Field(min_length=1)
+    side_a: list[Annotated[str, Field(pattern=r"^E[1-9]\d*$")]] = Field(min_length=1)
+    side_b: list[Annotated[str, Field(pattern=r"^E[1-9]\d*$")]] = Field(min_length=1)
 
 
 class AgentChatResponse(ChatResponse):
@@ -91,8 +91,24 @@ class ConditionsDecision(StrictModel):
     missing_conditions: list[ClarificationQuestion]
 
 
+class EvidenceSupport(StrictModel):
+    evidence_id: str
+    quote: str = Field(min_length=1)
+
+
+class EvidenceCoverage(StrictModel):
+    status: Literal["supported", "missing", "not_required"]
+    reason: str = Field(min_length=1)
+    support: list[EvidenceSupport]
+
+
 class EvidenceDecision(StrictModel):
     sufficient: bool
+    definitions: EvidenceCoverage
+    exceptions: EvidenceCoverage
+    applicability: EvidenceCoverage
+    complete_answer: EvidenceCoverage
+    missing_evidence: list[str]
 
 
 class RewriteDecision(StrictModel):
@@ -119,6 +135,7 @@ class GraphState(TypedDict):
     evidence: list[Evidence]
     documents: dict
     sufficient: bool
+    evidence_check_result: dict
     missing_conditions: list[ClarificationQuestion]
     status: ChatStatus | None
     answer: str | None

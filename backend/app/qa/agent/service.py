@@ -62,7 +62,7 @@ async def agent_answer(
         conditions=merged, current_query=query, retrieval_count=saved.retrieval_count,
         clarification_count=saved.clarification_count,
         evidence=[Evidence(e.evidence_id, e.hit.model_copy(deep=True)) for e in saved.evidence],
-        documents={}, sufficient=False, missing_conditions=[], status=None, answer=None,
+        documents={}, sufficient=False, evidence_check_result={}, missing_conditions=[], status=None, answer=None,
         clarification=None, conflict=None, trace=[],
     )
     nodes = Nodes(Dependencies(retrieve_fn, get_documents_fn, generate_fn, complete_evidence_fn))

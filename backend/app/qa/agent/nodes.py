@@ -6,6 +6,8 @@ No production model, embedding or database default is invoked here.
 import asyncio
 import inspect
 import json
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -40,6 +42,62 @@ def unique_fields(pairs):
     return result
 
 
+def age_definition_gap(question: str, decision: EvidenceDecision) -> bool:
+    """A numerical age category's restriction is not its legal definition.
+
+    Conservative structural check, independent of particular ages, documents or pages.
+    General 'adult traveler' assumptions and unrelated numbers do not trigger it.
+    """
+    ages = re.findall(r"(?:만\s*)?(\d+)\s*세\s*(?:미만|이하|이상|초과)", question)
+    ages += re.findall(r"(?:未满|不满|满|低于|超过)?\s*(\d+)\s*(?:周岁|岁)(?:以下|以上|以内|以外)?", question)
+    if not ages:
+        return False
+    if decision.definitions.status != "supported":
+        return True
+    for support in decision.definitions.support:
+        quote = re.sub(r"\s+", "", support.quote)
+        if not any(re.search(re.escape(age) + r"(?:세|周岁|岁)", quote) for age in ages):
+            continue
+        # Definition markers must occur alongside the age term in the quoted clause.
+        # A bare 'no exemption under age N' sentence contains none of these markers.
+        if re.search(r"이하같다|라한다|말한다|뜻한다|정의|是指|定义|指的是|不包括|不计入", quote):
+            return False
+        if re.search(r"[（(].*(?:제외|除外|除.*外).*[）)]", quote):
+            return False
+    return True
+
+
+def proof_text(text: str) -> str:
+    """Compare internal audit excerpts across escaped whitespace and typography.
+
+    Preserve decimal/thousands punctuation inside numbers. Public Citation.quote
+    is never rewritten; it still comes directly from the original source.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    for escaped in (r"\n", r"\r", r"\t"):
+        text = text.replace(escaped, " ")
+    text = re.sub(r"(?<!\d)[.,:;!?]|[.,:;!?](?!\d)|[。，、：；！？“”‘’\"']", "", text)
+    return re.sub(r"\s+", "", text)
+
+
+def evidence_is_sufficient(decision: EvidenceDecision, evidence: list[Evidence], question: str = "") -> bool:
+    """A confident boolean cannot override missing or ungrounded coverage."""
+    if age_definition_gap(question, decision):
+        return False
+    sources = {e.evidence_id: proof_text(e.hit.text) for e in evidence}
+    for coverage in (decision.definitions, decision.exceptions, decision.applicability, decision.complete_answer):
+        if coverage.status == "missing":
+            return False
+        if coverage.status == "supported" and not coverage.support:
+            return False
+        for support in coverage.support:
+            quote = proof_text(support.quote)
+            if not quote or support.evidence_id not in sources or quote not in sources[support.evidence_id]:
+                raise AgentError("Evidence assessment cited a nonexistent source or quote")
+    return (decision.sufficient and not decision.missing_evidence and not age_definition_gap(question, decision)
+            and decision.complete_answer.status == "supported")
+
+
 @dataclass(frozen=True)
 class Dependencies:
     retrieve: Retrieval
@@ -57,6 +115,7 @@ class Nodes:
         data = {
             "task": task, "question": state["question"], "conditions": state["conditions"],
             "current_query": state["current_query"], "retrieval_count": state["retrieval_count"],
+            "previous_evidence_check": state.get("evidence_check_result", {}),
             "evidence": [{"evidence_id": e.evidence_id, "source": e.hit.model_dump(mode="json"),
                           "document": state["documents"].get(e.hit.document_id)} for e in state["evidence"]],
         }
@@ -70,10 +129,30 @@ class Nodes:
             "Ask only when missing jurisdiction/direction or an explicitly requested individual decision cannot be resolved "
             "with a clear conditional policy explanation. "
             "Evidence: sufficient only if original clauses support the whole question with its conditions. "
+            "Audit definitions, exceptions, applicability (age, identity, quantities, country, direction and time), "
+            "and the complete answer separately. Cite verbatim source excerpts for every supported assessment. "
+            "A restriction using an age/identity/category term does NOT establish that term's legal definition. "
+            "When an age category is material, look for its defining threshold, exclusions and calendar convention; "
+            "if only the main restriction is provided and its definition is absent, mark definitions missing. "
+            "Never infer that a missing definition or exception does not exist just because it was not retrieved. "
+            "Do not use model knowledge to fill gaps; missing evidence is different from missing user conditions. "
+            "For an unconditional/general rule, the evidence must support relevant exceptions as well. "
+            "Scope this audit to facts that could change the answer actually requested. Do not require the entire "
+            "statute, every cross-referenced provision, unrelated goods, tax treatment or procedures when the requested "
+            "general threshold/rule and material qualifications are already explicit. A cross-reference alone is not "
+            "a gap. Distinguish a missing definition of the question's material category from unrelated background "
+            "definitions. Do not invent hypothetical exceptions without a concrete textual signal. "
+            "Support quotes must be short exact substrings copied from source.text, preserving punctuation and digits; "
+            "do not retype clause labels, normalize punctuation, paraphrase or join discontiguous text. "
+            "sufficient must be false if any required coverage is missing or uncertain. List precise search gaps "
+            "in missing_evidence so the next rewrite can retrieve them. not_required needs an explicit reason; "
+            "do not use not_required to bypass material definitions. "
             "Rewrite: produce a distinct targeted search query, preserving the question and supplied conditions; "
             "add search terms for missing definitions/exceptions rather than merely repeating the original question. "
             "Conflict: both sides must apply to the same country, direction, time and traveler; "
             "different scopes or an older superseded rule alone are not a true conflict. "
+            "Conflict side_a and side_b contain bare evidence ID strings only (for example E1), "
+            "never brackets, quoted passages or explanations; put explanations in reason. "
             "Answer: use the question's language; every sentence needs a valid [E#] reference; "
             "do not invent sources or policy facts. Schema: " + json.dumps(schema.model_json_schema()))},
             {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]
@@ -154,10 +233,17 @@ class Nodes:
         # Rebuild request-local IDs after filtering stale sources.
         evidence = [Evidence(f"E{i}", e.hit) for i, e in enumerate(evidence, 1)]
         sufficient = False
+        assessment = {}
         if evidence:
             decision = await self.decide("check_evidence", {**state, "documents": documents, "evidence": evidence}, EvidenceDecision)
-            sufficient = decision.sufficient
-        return {"evidence": evidence, "documents": documents, "sufficient": sufficient}
+            sufficient = evidence_is_sufficient(decision, evidence, state["question"])
+            assessment = {**decision.model_dump(), "accepted_sufficient": sufficient}
+            if age_definition_gap(state["question"], decision):
+                gap = "Explicit source definition of the question's numerical age category, including exclusions or calendar convention"
+                assessment["deterministic_gaps"] = [gap]
+                assessment["missing_evidence"] = [*decision.missing_evidence, gap]
+        return {"evidence": evidence, "documents": documents, "sufficient": sufficient,
+                "evidence_check_result": assessment}
 
     async def rewrite_query(self, state):
         decision = await self.decide("rewrite_query", state, RewriteDecision)
