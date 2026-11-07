@@ -451,6 +451,37 @@ async def test_korean_generation_keeps_existing_language_and_citation_checks():
     assert result.response.citations[0].quote == hit().text
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question", [QUESTION, "여행자 휴대품 규정은 무엇인가요?"])
+async def test_generation_reuses_single_rag_definition_and_opening_citation_rules(question):
+    from app.qa.prompts import build_messages
+    from app.qa.citation import Evidence
+    seen = []
+    llm = MockLLM(answer="테스트 자료에 따르면 신고가 필요합니다.[E1]" if "여행자" in question else None)
+    def generate(messages):
+        if json.loads(messages[-1]["content"])["task"] == "generate_answer":
+            seen.append(messages[0]["content"])
+        return llm(messages)
+    await agent_answer(question, **dependencies(generate))
+    language = "ko" if "여행자" in question else "zh"
+    expected = build_messages(question, language, [Evidence("E1", hit())])[0]["content"]
+    assert expected in seen[0]
+
+
+@pytest.mark.asyncio
+async def test_condition_prompts_distinguish_general_rules_from_personal_eligibility():
+    seen = []
+    llm = MockLLM()
+    def generate(messages):
+        task = json.loads(messages[-1]["content"])["task"]
+        if task in ("check_conditions", "check_applicability"):
+            seen.append(messages[0]["content"])
+        return llm(messages)
+    await run(dependencies(generate))
+    assert len(seen) == 2
+    assert all("general policy questions" in s and "exceptions conditionally" in s for s in seen)
+
+
 @pytest.mark.parametrize("state", [dict(retrieval_count=4), dict(clarification_count=2),
                                    dict(retrieval_count=True), dict(evidence_ids=["E1"]),
                                    dict(evidence=[CachedEvidence(evidence_id="E1", hit=hit())])])

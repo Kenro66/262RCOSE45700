@@ -128,3 +128,38 @@ JSON 重复字段、未知字段、错误字段类型、空白查询、不存在
 ```
 
 Agent Mock 测试禁止外部 socket 连接及 httpx 请求。允许 Windows asyncio 内部使用的 loopback wakeup socket；没有生产网络调用。
+
+## 第三阶段：显式真实依赖适配层
+
+`app.qa.agent.runtime.agent_answer_real()` 接受 question/session_id/conditions/question_id/agent_state，建立独立 `RealRAG` 实例后向 `agent_answer()` 注入现有实现：
+
+- `qa.retriever.retrieve` + `storage.repo.search_similar`，沿用 BGE-M3/pgvector，不重写算法。
+- `storage.repo.get_documents`，保持现有 DocumentLookup 返回类型；不存在的 Issue #45 字段不自行补造。
+- `qa.evidence_completion.complete_evidence` + `storage.repo.get_ready_chunk_sources`。
+- `adapters.generation.generate_text`，沿用现有 OpenAI-compatible 网关与 `.env` 配置。
+
+每次检索将最新 query 保存在本次 RealRAG 实例中，Completion 使用**最新 query + 原问题 + 累计 conditions**。因此 Rewrite 不会继续使用只绑定原问题的旧上下文，同时保留原适用条件。实例不可跨并发请求共享。
+
+适配层从现有 settings() 读取 DATABASE_URL，为自己创建独立 engine/session_factory，不改变进程环境或 Single RAG 的连接池。PostgreSQL 会话设置 `default_transaction_read_only=on`，连接超时 8 秒、命令超时 30 秒；退出时释放自有 engine。支持传入现有 session_factory 进行独立验证，注入的工厂由调用方负责生命周期和只读配置。
+
+生成节点复用现有 `build_messages()` 的中韩文引用、定义和例外规则。条件判断明确区分一般政策解释与个人资格判断，避免仅为解释证据中的例外而反复要求个人条件。未改动 Single RAG 源文件。
+
+### 可复现的真实验证
+
+在 backend 目录运行 `scripts/validate_agent_real.py`，需使用项目虚拟环境；真实服务需有网络及本地数据库权限：
+
+```powershell
+# 先检查只读数据库和真实检索，再调用模型。
+python scripts/validate_agent_real.py --phase inventory --output <output>/inventory.json
+python scripts/validate_agent_real.py --phase retrieval --output <output>/retrieval.json
+python scripts/validate_agent_real.py --phase decisions --retrieval-input <output>/retrieval.json --output <output>/decisions.json
+python scripts/validate_agent_real.py --phase full --output <output>/full.json
+python scripts/validate_agent_real.py --phase single --output <output>/single-baseline.json
+
+# 明确标注的实验：只对已检索的 initial 来源做判断，移除 Completion。
+python scripts/validate_agent_real.py --phase decisions --tasks check_evidence rewrite_query --initial-only --retrieval-input <output>/retrieval.json --output <output>/ablation.json
+```
+
+runner 不写数据库、不上传文件、不保存状态；金标准不发送给 LLM。引用核查通过 evidence_id 对应的 document_id 定位 `uploads/<document_id>.pdf`，核对物理页、规范化空白后的原文及与 data/ PDF 的 SHA-256 一致性。不能仅靠上传显示名拼接仓库文件路径。
+
+运行记录应同时保留失败与修正后的结果。当前独立验证仍不等同于全部第一批验收：真实 True Conflict、跨请求预算的真实后端保存、广泛问题集、LLM 判断稳定性需要后续继续验证。尤其 Q003 在移除补全的实验中出现 Evidence Check 假阳性，当前流程依赖已有 Completion 补回关键定义；不能据此宣称 Evidence Check 已可靠识别所有缺失例外。
