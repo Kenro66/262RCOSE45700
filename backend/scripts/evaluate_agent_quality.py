@@ -82,6 +82,8 @@ async def execute(case, arm, record, save, *, completion=True):
         def generate(messages):
             data = json.loads(messages[-1]["content"])
             row = {"task": data.get("task", "single_generate")}
+            if data.get("validation_feedback") is not None:
+                row["validation_feedback"]=data["validation_feedback"]
             record["model_calls"].append(row)
             t = time.perf_counter()
             try:

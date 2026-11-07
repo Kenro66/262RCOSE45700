@@ -195,3 +195,46 @@ async def test_channel_choice_waits_for_missing_declaration_premise():
     assert result.response.status.value=="ANSWERED"
     assert result.state.retrieval_count==2
     assert len(result.response.citations)==2
+
+
+@pytest.mark.asyncio
+async def test_generation_numeric_typo_gets_one_validated_repair_without_retrieval():
+    base=generator(); attempts=[]
+    def generate(messages):
+        data=json.loads(messages[-1]["content"])
+        if data["task"]!="generate_answer": return base(messages)
+        attempts.append(data)
+        value="1 5" if len(attempts)==1 else "1.5"
+        return json.dumps(dict(answer=f"测试资料的限量为{value}升。[E1]",insufficient_evidence=False),ensure_ascii=False)
+    source=evidence("测试规则原文：限量为1.5升。")[0].hit
+    result,retrieve=await invoke(generate,[[source]])
+    assert result.response.status.value=="ANSWERED" and "1.5" in result.response.answer
+    assert retrieve.await_count==1 and len(attempts)==2
+    assert "unsupported_numeric_notation_or_value" in attempts[1]["validation_feedback"]["issues"]
+    assert result.response.citations[0].quote==source.text
+
+
+@pytest.mark.asyncio
+async def test_repair_does_not_bypass_numeric_validation_or_retry_forever():
+    base=generator(); attempts=[]
+    def generate(messages):
+        data=json.loads(messages[-1]["content"])
+        if data["task"]!="generate_answer": return base(messages)
+        attempts.append(data)
+        return json.dumps(dict(answer="测试资料的限量为999升。[E1]",insufficient_evidence=False),ensure_ascii=False)
+    result,retrieve=await invoke(generate,[[evidence("测试规则原文：限量为1.5升。")[0].hit]])
+    assert result.response.status.value=="INSUFFICIENT_EVIDENCE"
+    assert retrieve.await_count==1 and len(attempts)==2
+
+
+@pytest.mark.asyncio
+async def test_repair_can_fix_a_structured_generation_format_error():
+    base=generator(); attempts=[]
+    def generate(messages):
+        data=json.loads(messages[-1]["content"])
+        if data["task"]!="generate_answer": return base(messages)
+        attempts.append(data)
+        return "not JSON" if len(attempts)==1 else json.dumps(dict(answer="测试规则原文。[E1]",insufficient_evidence=False))
+    result,retrieve=await invoke(generate)
+    assert result.response.status.value=="ANSWERED" and len(attempts)==2
+    assert retrieve.await_count==1
