@@ -8,7 +8,7 @@ from ...adapters.generation import generate_text
 from ..evidence_completion import complete_evidence
 from ..retriever import retrieve
 from .service import agent_answer
-from .state import AgentState
+from .state import AgentState, normalize_agent_state
 
 
 class RealRAG:
@@ -84,9 +84,11 @@ class RealRAG:
 
 async def agent_answer_real(question: str, session_id: str | None = None, *,
                             conditions: dict | None = None, question_id: str | None = None,
-                            agent_state: AgentState | None = None):
+                            agent_state: AgentState | dict | None = None):
     """Explicit real-service entry point. No automatic mode switch or fallback."""
-    merged = {**(agent_state.conditions if agent_state else {}), **(conditions or {})}
+    saved = normalize_agent_state(agent_state)
+    merged = {**saved.conditions, **(conditions or {})}
     async with RealRAG(question, conditions=merged) as runtime:
         return await agent_answer(question, session_id, conditions=conditions, question_id=question_id,
-                                  agent_state=agent_state, **runtime.dependencies())
+                                  agent_state=saved if isinstance(agent_state, dict) else agent_state,
+                                  **runtime.dependencies())

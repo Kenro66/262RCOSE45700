@@ -5,7 +5,7 @@ from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...contracts import ChatResponse, ChatStatus, Chunk, SearchHit
+from ...contracts import ChatResponse, ChatStatus, Chunk, SearchHit, Citation
 from ..citation import Evidence
 
 
@@ -37,6 +37,16 @@ class Conflict(StrictModel):
     side_a: list[Annotated[str, Field(pattern=r"^E[1-9]\d*$")]] = Field(min_length=1)
     side_b: list[Annotated[str, Field(pattern=r"^E[1-9]\d*$")]] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def validate_sides(self):
+        if not self.reason.strip():
+            raise ValueError("Conflict reason must not be blank")
+        if len(set(self.side_a)) != len(self.side_a) or len(set(self.side_b)) != len(self.side_b):
+            raise ValueError("Conflict sides must not contain duplicate evidence IDs")
+        if set(self.side_a) & set(self.side_b):
+            raise ValueError("Conflict sides must be disjoint")
+        return self
+
 
 class AgentChatResponse(ChatResponse):
     """Additive internal C5 candidate; the existing public model is untouched."""
@@ -44,6 +54,41 @@ class AgentChatResponse(ChatResponse):
     question_id: str
     clarification: Clarification | None = None
     conflict: Conflict | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_response(self):
+        if not self.question_id.strip():
+            raise ValueError("Agent response requires a question ID")
+        ids = [c.evidence_id for c in self.citations]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Citation evidence IDs must be unique")
+        for citation in self.citations:
+            # Revalidate the original public Citation contract, including page >= 1.
+            Citation.model_validate(citation.model_dump())
+            if not all(x.strip() for x in (citation.evidence_id, citation.filename, citation.quote)):
+                raise ValueError("Citation fields must not be blank")
+        if self.status == ChatStatus.NEEDS_CLARIFICATION:
+            if self.clarification is None or self.answer is not None or self.citations:
+                raise ValueError("Clarification requires questions, no answer and no citations")
+        elif self.clarification is not None:
+            raise ValueError("Clarification only belongs to NEEDS_CLARIFICATION")
+        if self.status == ChatStatus.CONFLICTING_EVIDENCE:
+            if self.conflict is None or self.answer is not None:
+                raise ValueError("Conflict requires both sides and no answer")
+            Conflict.model_validate(self.conflict.model_dump())
+            if not set(self.conflict.side_a + self.conflict.side_b) <= set(ids):
+                raise ValueError("Conflict references must all resolve to final citations")
+        elif self.conflict is not None:
+            raise ValueError("Conflict only belongs to CONFLICTING_EVIDENCE")
+        if self.status == ChatStatus.ANSWERED:
+            if not self.answer or not self.answer.strip() or not self.citations:
+                raise ValueError("ANSWERED requires an answer and citations")
+        elif self.status == ChatStatus.INSUFFICIENT_EVIDENCE:
+            if self.answer is not None or self.citations:
+                raise ValueError("INSUFFICIENT_EVIDENCE requires no answer or citations")
+        return self
 
 
 class CachedEvidence(StrictModel):
@@ -65,6 +110,8 @@ class AgentState(StrictModel):
 
     @model_validator(mode="after")
     def validate_cache(self):
+        if len(self.retrieval_queries) > self.retrieval_count:
+            raise ValueError("Query history cannot exceed consumed retrieval budget")
         expected = [f"E{i}" for i in range(1, len(self.evidence) + 1)]
         if self.evidence_ids != expected or [e.evidence_id for e in self.evidence] != expected:
             raise ValueError("Evidence IDs must match the full, sequential source cache")
@@ -79,6 +126,24 @@ class AgentState(StrictModel):
         if self.evidence and (not self.question or not self.question_id or self.retrieval_count == 0):
             raise ValueError("Cached sources must be bound to a logical question and consumed retrieval")
         return self
+
+
+def normalize_agent_state(value: AgentState | dict | None) -> AgentState:
+    """Restore a complete server snapshot; never default missing persisted fields.
+
+    This validates shape, not authenticity. The backend must supply trusted Store
+    data and must not replace a missing/expired snapshot with None.
+    """
+    if value is None:
+        return AgentState()
+    if isinstance(value, AgentState):
+        value = value.model_dump()
+    elif not isinstance(value, dict):
+        raise ValueError("agent_state must be AgentState, a snapshot dictionary, or None")
+    missing = AgentState.model_fields.keys() - value.keys()
+    if missing:
+        raise ValueError(f"Incomplete AgentState snapshot: {', '.join(sorted(missing))}")
+    return AgentState.model_validate(value)
 
 
 class AgentResult(BaseModel):

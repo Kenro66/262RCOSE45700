@@ -6,13 +6,14 @@ from uuid import uuid4
 
 from langgraph.errors import NodeCancelledError
 
-from ...contracts import ChatStatus
+from ...contracts import ChatStatus, DocumentStatus
 from ..citation import Evidence, resolve_citations
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import detect_language
 from .graph import build_graph
 from .nodes import AgentError, Dependencies, Nodes
-from .state import AgentChatResponse, AgentResult, AgentState, CachedEvidence, GraphState
+from .state import (AgentChatResponse, AgentResult, AgentState, CachedEvidence,
+                    GraphState, normalize_agent_state)
 
 
 def snapshot(state: GraphState) -> AgentState:
@@ -28,14 +29,14 @@ def snapshot(state: GraphState) -> AgentState:
 
 async def agent_answer(
     question: str, session_id: str | None = None, *, conditions: dict | None = None,
-    question_id: str | None = None, agent_state: AgentState | None = None,
+    question_id: str | None = None, agent_state: AgentState | dict | None = None,
     retrieve_fn: Retrieval | None = None, get_documents_fn: DocumentLookup | None = None,
     generate_fn: Generator | None = None, complete_evidence_fn: Completion | None = None,
 ) -> AgentResult:
     """Execute with injected mocks/services; no implicit external dependencies.
 
     Supply the original question and the same session/question IDs when resuming.
-    Restore JSON via AgentState.model_validate_json(). Full sources, not E IDs,
+    Restore a complete server snapshot dict or AgentState. Full sources, not E IDs,
     are cached; document readiness is rechecked before using them on a new request.
     Technical failures raise AgentError with state/trace, never trigger fallback here.
     """
@@ -46,7 +47,7 @@ async def agent_answer(
             raise ValueError(f"{name} must be nonempty or None")
     if conditions is not None and not isinstance(conditions, dict):
         raise ValueError("conditions must be a dictionary")
-    saved = AgentState() if agent_state is None else AgentState.model_validate(agent_state.model_dump())
+    saved = normalize_agent_state(agent_state)
     if saved.question is not None and (saved.question != question or saved.session_id != session_id
                                        or saved.question_id != question_id):
         raise ValueError("Restored state belongs to a different logical question/session")
@@ -75,6 +76,20 @@ async def agent_answer(
         elif final["status"] == ChatStatus.CONFLICTING_EVIDENCE:
             ids = final["conflict"].side_a + final["conflict"].side_b
             _, citations = resolve_citations("".join(f"[{key}]" for key in ids), final["evidence"], final["documents"])
+            missing = set(ids) - {c.evidence_id for c in citations}
+            if missing:
+                sources = {e.evidence_id: e.hit for e in final["evidence"]}
+                for key in missing:
+                    if key not in sources:
+                        raise AgentError("Conflict references unknown evidence")
+                    metadata = final["documents"].get(sources[key].document_id)
+                    if metadata is not None and DocumentStatus(metadata.get("status")) == DocumentStatus.READY:
+                        raise AgentError("Resolver lost a conflict citation from a READY source")
+                # Missing/non-READY documents are unavailable policy evidence, not
+                # a tool failure. Never expose a one-sided conflict or partial answer.
+                final = {**final, "status": ChatStatus.INSUFFICIENT_EVIDENCE,
+                         "conflict": None, "answer": None, "clarification": None}
+                citations = []
         response = AgentChatResponse(
             status=final["status"], answer=final["answer"], citations=citations,
             message=("현재 증거가 부족하여 관련 규정을 확인할 수 없습니다."
