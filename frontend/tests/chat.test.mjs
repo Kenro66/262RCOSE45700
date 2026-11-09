@@ -19,6 +19,13 @@ test('conditions validate all select/text fields and reject blank/unknown option
   assert.equal(validConditions([], {}), false)
 })
 
+test('select preserves the exact option code accepted by the Agent schema', () => {
+  const questions = [{ field: 'code', question: '选择代码', type: 'select', options: [' CN ', 'KR'] }]
+  assert.equal(validConditions(questions, { code: ' CN ' }), true)
+  assert.equal(validConditions(questions, { code: 'CN' }), false)
+  assert.equal(validConditions(questions, { code: '  ' }), false)
+})
+
 test('mock uses original question and correlation IDs, returns a source after followup', async () => {
   const transport = createMockTransport(1)
   const payload = request()

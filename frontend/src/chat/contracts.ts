@@ -22,8 +22,9 @@ export function validConditions(questions: Question[], conditions: Record<string
   if (!fields.length || new Set(fields).size !== fields.length
     || Object.keys(conditions).some(field => !fields.includes(field))) return false
   return questions.every(q => {
-    const value = conditions[q.field]?.trim()
-    return !!value && (q.type === 'text' || q.options.includes(value))
+    const value = conditions[q.field]
+    // Check blank input without rewriting API option codes before comparison.
+    return typeof value === 'string' && !!value.trim() && (q.type === 'text' || q.options.includes(value))
   })
 }
 
