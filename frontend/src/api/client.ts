@@ -1,4 +1,6 @@
 const API_BASE_URL = '/api'
+import type { AgentResponse, ChatRequest } from '../chat/contracts'
+import { mockChatEnabled } from '../chat/mock-mode'
 
 export class ApiError extends Error {
   constructor(
@@ -14,6 +16,10 @@ export async function apiRequest<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (mockChatEnabled) {
+    if (path === '/documents' && (!options.method || options.method === 'GET')) return [] as T
+    throw new Error('Document mutations are disabled in chat mock mode')
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, options)
 
   const data: unknown = response.status === 204
@@ -129,26 +135,20 @@ export type ApiChatCitation = {
   quote: string
 }
 
-export type ApiChatResponse = {
-  status:
-    | 'ANSWERED'
-    | 'INSUFFICIENT_EVIDENCE'
-    | 'NO_READY_DOCUMENTS'
-    | 'SYSTEM_ERROR'
-  answer: string | null
-  citations: ApiChatCitation[]
-  message: string | null
-}
+export type ApiChatResponse = AgentResponse
 
-export function sendChatMessage(message: string, signal?: AbortSignal): Promise<ApiChatResponse> {
+export async function sendChatMessage(message: string, signal?: AbortSignal, followup?: Omit<ChatRequest, 'message'>): Promise<ApiChatResponse> {
+  const payload = { ...followup, message }
+  if (mockChatEnabled) {
+    const { sendMockChat } = await import('../mocks/chat-transport')
+    return sendMockChat(payload, signal ?? new AbortController().signal, document.documentElement.lang === 'ko-KR')
+  }
   return apiRequest<ApiChatResponse>('/chat', {
     method: 'POST',
     signal,
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      message,
-    }),
+    body: JSON.stringify(payload),
   })
 }

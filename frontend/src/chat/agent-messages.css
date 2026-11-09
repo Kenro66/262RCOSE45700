@@ -1,0 +1,18 @@
+.agent-followup fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.agent-hint { font-size: 11px; color: var(--muted); line-height: 1.8; margin: 8px 0; }
+.agent-field { display: block; font-size: 12px; line-height: 1.7; margin: 16px 0; }
+.agent-field input, .agent-field select { display: block; width: 100%; margin-top: 8px; padding: 9px 12px; min-height: 40px; border: 1px solid var(--border); border-radius: 7px; background: #fff; }
+.agent-field input:disabled, .agent-field select:disabled { background: #f7f7f6; }
+.agent-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.agent-error { color: var(--red); font-size: 12px; line-height: 1.8; }
+.agent-side { margin-top: 18px; }
+.agent-side h3 { font-size: 11px; color: var(--muted); margin: 0 0 8px; font-weight: 500; }
+.agent-evidence { width: 100%; padding: 15px; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: #fafaf9; cursor: pointer; }
+.agent-evidence:hover { border-color: #d9a3a7; }
+.agent-evidence > span { display: block; font-size: 12px; line-height: 1.8; }
+.agent-evidence > span:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.agent-evidence small { white-space: nowrap; color: var(--muted); }
+.agent-evidence:focus-visible, .agent-followup :focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.chat-mock-banner { background: var(--red-soft); color: #8a6261; padding: 10px 30px; font-size: 11px; line-height: 1.7; border-block: 1px solid #f2e3e2; }
+.chat-mock-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 5px; }
+.chat-mock-links a { color: var(--red); text-decoration: underline; text-underline-offset: 3px; }
