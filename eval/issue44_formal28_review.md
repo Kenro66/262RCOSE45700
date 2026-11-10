@@ -18,7 +18,7 @@
 - **P0**：F013–F018 + 新增F023均有 `two_turn_gold.turn1/turn2`：固定条件、追问内容、第二轮期望状态、金标准答案和证据。后端执行/打分 Schema 尚未定，仍用临时 `NEEDS_CLARIFICATION_DRAFT`，不可直接当作正式可运行 qtype。
 - **P1**：F015 仅缺居民身份；F016替换掉和 Pilot P010 重复的烟草年龄例外，改为韩国已办海关反出境确认相机的再入境；F021补齐出境第10条（七）。
 - **P2**：统一五份PDF来源与引文；补齐F023/F024；F025更换与Pilot P037同类型香水题；F025–F030补充拒答准则。
-- **核查**：30个唯一题号、42条引用的文字与原版PDF**物理页码**匹配。此项不等于已完成政策适用性终审、线上READY、运行结果，也不等于已有可执行多轮评分器。
+- **核查**：30个唯一题号、43条引用的文字与原版PDF**物理页码**匹配。此项不等于已完成政策适用性终审、线上READY、运行结果，也不等于已有可执行多轮评分器。
 
 ## 关于文件来源和线上状态
 
@@ -184,7 +184,7 @@ KR01/CN01/CN02 的规范题库文件名按现有仓库 `data/pdfs/` 风格（原
 
 **适用/缺失条件：** 初始未说明入境国家、来源地区及旅客身份年龄；第二轮统一固定韩国→中国、成人一般旅客、普通香烟200支、自用。
 
-**第一轮**：`NEEDS_CLARIFICATION`；必须问 destination_country, departure_region, age_or_adult, traveler_role
+**第一轮**：`NEEDS_CLARIFICATION`；必须问 country, departure_region, age, traveler_role
 
 **建议追问：** 请问您入境中国还是韩国？从哪里出发？是否已成年，属于一般旅客还是经常出入境人员、乘务员？
 
@@ -272,6 +272,8 @@ KR01/CN01/CN02 的规范题库文件名按现有仓库 `data/pdfs/` 风格（原
 
 **审核说明：** 원래 F016의 담배 만19세 예외는 Pilot P010과 실질중복 위험이 있어 다른 조항으로 대체함.
 
+**证据 [KR01，PDF物理第9页]：** 제19조(면세범위) ① 법 제96조제1항제1호, 제97조제1항 및 규칙 제48조제1항부터 제3항까지의 규정에 따라 여행자가 반입하는 휴대품 중 다음 각 호의 어느 하나에 해당하는 물품은 기본면세범위와 관계없이 관세를 면제한다.
+
 **证据 [KR01，PDF物理第9页]：** 3.세관장이반출확인한물품으로서본인이재반입하는물품
 
 **证据 [KR02，PDF物理第27页]：** 3.세관장이반출확인한물품으로서재반입되는물품일것
@@ -282,9 +284,9 @@ KR01/CN01/CN02 的规范题库文件名按现有仓库 `data/pdfs/` 风格（原
 
 **适用/缺失条件：** 한국 입국 / 해외출장 빈도는 승무원 직업 여부와 다름 / 초기 직업 불명. 두 번째 턴에 일반 사무직임을 고정.
 
-**第一轮**：`NEEDS_CLARIFICATION`；必须问 is_professional_crew, transport_type_if_crew
+**第一轮**：`NEEDS_CLARIFICATION`；必须问 is_professional_crew
 
-**建议追问：** 국제무역선이나 국제무역기에 직업으로 탑승해 근무하는 승무원이신가요? 승무원이라면 선박인지 항공기인지 알려주세요.
+**建议追问：** 국제무역선이나 국제무역기에 직업으로 탑승해 근무하는 승무원이신가요? (승무원인 경우에만 선박인지 항공기인지 알려주세요.)
 
 **第二轮固定回复：** 아니요. 저는 일반 회사의 사무직 직원이고, 회사 출장 때문에 국제선 여객기를 자주 이용할 뿐 승무원은 아닙니다.
 
@@ -304,15 +306,15 @@ KR01/CN01/CN02 的规范题库文件名按现有仓库 `data/pdfs/` 风格（原
 
 **问题：** 我从国外进入中国内地，想带香烟，能免税携带多少？
 
-**适用/缺失条件：** 중국 입경 / 일반 여행자와 빈번한 출입경 인원의 담배 한도가 다름 / 출발 지역, 빈번 출입경, 성인 여부 초기 미상.
+**适用/缺失条件：** 中国入境；初始未明确来源地区、是否经常出入境、成年身份及运输工具工作人员身份；第二轮固定25岁、澳门来源、经常出入境人员、非工作人员、普通香烟、当日尚未使用该限额。
 
-**第一轮**：`NEEDS_CLARIFICATION`；必须问 departure_region, frequent_traveler_status, age_or_adult
+**第一轮**：`NEEDS_CLARIFICATION`；必须问 departure_region, frequent_traveler, age, crew
 
-**建议追问：** 请问从香港、澳门还是其他地区入境中国内地？您是否属于经常出入境人员，以及是否已满18周岁？
+**建议追问：** 请问您从香港、澳门还是其他地区入境中国内地？您是否属于经常出入境人员、是否已满18周岁，以及是否为进境运输工具工作人员？
 
-**第二轮固定回复：** 我25岁，从澳门进入中国内地，属于经常出入境人员，今天还没有使用这项免税额度，携带的是自用普通纸烟。
+**第二轮固定回复：** 我25岁，从澳门进入中国内地，属于经常出入境人员，不是进境运输工具工作人员，也不是乘务员；今天还没有使用这项免税额度，携带的是自用普通纸烟。
 
-**第二轮固定条件：** `{"country": "CN", "direction": "INBOUND", "departure_region": "MO", "age": 25, "frequent_traveler": true, "crew": false, "item": "ordinary_cigarettes", "personal_use": true, "frequency_uses_today": 0}`
+**第二轮固定条件：** `{"country": "CN", "direction": "INBOUND", "departure_region": "MO", "age": 25, "frequent_traveler": true, "crew": false, "item": "ordinary_cigarettes", "personal_use": true, "frequency_uses_today": 0, "transport_worker": false}`
 
 **第二轮目标：** `ANSWERED`
 
@@ -418,84 +420,96 @@ KR01/CN01/CN02 的规范题库文件名按现有仓库 `data/pdfs/` 风格（原
 
 **证据 [CN02，PDF物理第8页]：** 出境人员以分离运输方式运出行李物品的，应当在本人出境前办结海关手续。
 
-### F025｜库外正确拒答｜zh｜INSUFFICIENT_EVIDENCE
+### F025｜证据不足拒答｜zh｜INSUFFICIENT_EVIDENCE
 
 **问题：** 我从韩国飞往美国，带一把个人自用电吉他，按美国入境政策是否必须申报？请提供美国海关的具体法规依据。
 
 **适用/缺失条件：** 美国入境 / 个人随身乐器申报规则不在中韩五份政策 PDF 内；不得用韩国或中国规定代替美国法。
 
-**金标准/预期：** `INSUFFICIENT_EVIDENCE`：不得猜测具体规定或数字。
+**金标准/预期：** `INSUFFICIENT_EVIDENCE`：证据不足时不得编造所问具体法定结论。
 
-**拒答判定：** 说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。
+**拒答子类：** `OUT_OF_KB_COUNTRY`（外国目标政策不在本项目5份语料中）
+
+**拒答判定：** {'status': 'INSUFFICIENT_EVIDENCE', 'must_not_assert': ['foreign-jurisdiction policy details not present in five-PDF KB', 'invented legal numeric thresholds, permit lists or exemption rules'], 'acceptable_answer': '说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。'}
 
 **审核说明：** 已避开Pilot P037“日本入境香水限量”，改测试美国入境随身乐器申报要求；仍需人工确认此问题的合理性。
 
-**证据：** `gold_evidence=[]`（不在现有五份PDF中获得足够支持，不引用虚构来源）
+**证据：** `gold_evidence=[]`（无足以支持目标数字/规定的本项目政策证据，不引用虚构来源）
 
-### F026｜库外正确拒答｜zh｜INSUFFICIENT_EVIDENCE
+### F026｜证据不足拒答｜zh｜INSUFFICIENT_EVIDENCE
 
 **问题：** 加拿大入境旅客携带赠送给亲友的礼品，免税价值上限是多少加元？请给出具体金额。
 
 **适用/缺失条件：** 加拿大入境礼品免税价值政策不在五份中韩PDF范围内，不能根据其他国家政策推断数额。
 
-**金标准/预期：** `INSUFFICIENT_EVIDENCE`：不得猜测具体规定或数字。
+**金标准/预期：** `INSUFFICIENT_EVIDENCE`：证据不足时不得编造所问具体法定结论。
 
-**拒答判定：** 说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。
+**拒答子类：** `OUT_OF_KB_COUNTRY`（外国目标政策不在本项目5份语料中）
+
+**拒答判定：** {'status': 'INSUFFICIENT_EVIDENCE', 'must_not_assert': ['foreign-jurisdiction policy details not present in five-PDF KB', 'invented legal numeric thresholds, permit lists or exemption rules'], 'acceptable_answer': '说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。'}
 
 **审核说明：** 与Pilot国外拒答题区分：礼品价值规则，不是香烟、香水或酒精免税数量。
 
-**证据：** `gold_evidence=[]`（不在现有五份PDF中获得足够支持，不引用虚构来源）
+**证据：** `gold_evidence=[]`（无足以支持目标数字/规定的本项目政策证据，不引用虚构来源）
 
-### F027｜库外正确拒答｜zh｜INSUFFICIENT_EVIDENCE
+### F027｜证据不足拒答｜zh｜INSUFFICIENT_EVIDENCE
 
 **问题：** 从韩国飞往澳大利亚，入境澳大利亚时携带蜂蜜应申报哪些材料、需要满足哪些检疫条件？
 
 **适用/缺失条件：** 澳大利亚蜂蜜检疫与申报规则不在五份中韩PDF范围内；不得依据中国/韩国规则捏造澳大利亚具体要求。
 
-**金标准/预期：** `INSUFFICIENT_EVIDENCE`：不得猜测具体规定或数字。
+**金标准/预期：** `INSUFFICIENT_EVIDENCE`：证据不足时不得编造所问具体法定结论。
 
-**拒答判定：** 说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。
+**拒答子类：** `OUT_OF_KB_COUNTRY`（外国目标政策不在本项目5份语料中）
+
+**拒答判定：** {'status': 'INSUFFICIENT_EVIDENCE', 'must_not_assert': ['foreign-jurisdiction policy details not present in five-PDF KB', 'invented legal numeric thresholds, permit lists or exemption rules'], 'acceptable_answer': '说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。'}
 
 **审核说明：** 与Pilot中境外酒、香烟、香水限量题区分：检疫材料及措施，不是限量数字。
 
-**证据：** `gold_evidence=[]`（不在现有五份PDF中获得足够支持，不引用虚构来源）
+**证据：** `gold_evidence=[]`（无足以支持目标数字/规定的本项目政策证据，不引用虚构来源）
 
-### F028｜库外正确拒答｜zh｜INSUFFICIENT_EVIDENCE
+### F028｜证据不足拒答｜zh｜INSUFFICIENT_EVIDENCE
 
 **问题：** 法国入境旅客携带现金，法定申报门槛是多少欧元？
 
 **适用/缺失条件：** 现有中韩政策不包含法国入境现金申报标准；正确做法是明确证据不足，不给确定数值。
 
-**金标准/预期：** `INSUFFICIENT_EVIDENCE`：不得猜测具体规定或数字。
+**金标准/预期：** `INSUFFICIENT_EVIDENCE`：证据不足时不得编造所问具体法定结论。
 
-**拒答判定：** 说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。
+**拒答子类：** `OUT_OF_KB_COUNTRY`（外国目标政策不在本项目5份语料中）
 
-**证据：** `gold_evidence=[]`（不在现有五份PDF中获得足够支持，不引用虚构来源）
+**拒答判定：** {'status': 'INSUFFICIENT_EVIDENCE', 'must_not_assert': ['foreign-jurisdiction policy details not present in five-PDF KB', 'invented legal numeric thresholds, permit lists or exemption rules'], 'acceptable_answer': '说明五份中韩政策 PDF 不足以证明所问外国规则；不作确定数值或条件结论。'}
 
-### F029｜库外正确拒答｜zh｜INSUFFICIENT_EVIDENCE
+**证据：** `gold_evidence=[]`（无足以支持目标数字/规定的本项目政策证据，不引用虚构来源）
+
+### F029｜证据不足拒答｜zh｜INSUFFICIENT_EVIDENCE
 
 **问题：** 中国海关规定，出境旅客携带人民币现金超过多少元必须书面申报？请给出法定具体金额。
 
 **适用/缺失条件：** 中国 OUTBOUND; CN02第10条第（六）项只规定携带超过规定数额货币现钞需书面申报，本项目五份PDF没有写出具体人民币金额，不能编造数字。
 
-**金标准/预期：** `INSUFFICIENT_EVIDENCE`：不得猜测具体规定或数字。
+**金标准/预期：** `INSUFFICIENT_EVIDENCE`：证据不足时不得编造所问具体法定结论。
 
-**拒答判定：** 承认现有政策说明了相关义务或主题，但当前证据不足以推出所问具体数字。
+**拒答子类：** `IN_KB_TOPIC_MISSING_NUMERIC_EVIDENCE`（现有语料触及主题，但缺乏所问具体数字依据）
+
+**拒答判定：** {'status': 'INSUFFICIENT_EVIDENCE', 'must_not_assert': ['invented numeric declaration threshold'], 'acceptable_answer': '承认现有政策说明了相关义务或主题，但当前证据不足以推出所问具体数字。'}
 
 **审核说明：** 主题在库内但具体数值不在库内；可指出法规有规定申报义务，但必须拒绝给出未经证据支持的数额。
 
-**证据：** `gold_evidence=[]`（不在现有五份PDF中获得足够支持，不引用虚构来源）
+**证据：** `gold_evidence=[]`（无足以支持目标数字/规定的本项目政策证据，不引用虚构来源）
 
-### F030｜库外正确拒答｜ko｜INSUFFICIENT_EVIDENCE
+### F030｜证据不足拒答｜ko｜INSUFFICIENT_EVIDENCE
 
 **问题：** 한국에 반려묘를 데리고 입국할 때 검역 수수료는 정확히 몇 원인가요?
 
 **适用/缺失条件：** 韩国 INBOUND; KR01仅将动物列为应申报对象，不列出宠物猫检疫收费额，现有五份政策不足以给出准确费用。
 
-**金标准/预期：** `INSUFFICIENT_EVIDENCE`：不得猜测具体规定或数字。
+**金标准/预期：** `INSUFFICIENT_EVIDENCE`：证据不足时不得编造所问具体法定结论。
 
-**拒答判定：** 承认现有政策说明了相关义务或主题，但当前证据不足以推出所问具体数字。
+**拒答子类：** `IN_KB_TOPIC_MISSING_NUMERIC_EVIDENCE`（现有语料触及主题，但缺乏所问具体数字依据）
+
+**拒答判定：** {'status': 'INSUFFICIENT_EVIDENCE', 'must_not_assert': ['invented veterinary quarantine fee'], 'acceptable_answer': '承认现有政策说明了相关义务或主题，但当前证据不足以推出所问具体数字。'}
 
 **审核说明：** 库内KR01第6条涵盖动物须申报，但无检疫收费定价；不得凭常识补出韩元金额。
 
-**证据：** `gold_evidence=[]`（不在现有五份PDF中获得足够支持，不引用虚构来源）
+**证据：** `gold_evidence=[]`（无足以支持目标数字/规定的本项目政策证据，不引用虚构来源）
