@@ -712,7 +712,7 @@ function ChatPage({
 
   const requestResponse = async (
     conversationId: number, question: string,
-    followup?: Omit<ChatRequest, 'message'>, pendingId?: number, signal?: AbortSignal,
+    followup?: Omit<ChatRequest, 'question'>, pendingId?: number, signal?: AbortSignal,
   ) => {
     if (activeChatRequest.current) throw new Error('REQUEST_IN_PROGRESS')
     const controller = new AbortController()

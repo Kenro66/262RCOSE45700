@@ -14,7 +14,7 @@ export function createChatMock(scenario = 'clarify', failOnce = false) {
         return scenario === 'invalid' ? { ...response, citations: response.citations.slice(0, 1) } : response
       }
       const response = { ...clarificationFixture(korean, scenario === 'multi'), question_id: `mock-q-${++sequence}` }
-      pending.set(`${request.session_id}:${response.question_id}`, { response, question: request.message })
+      pending.set(`${request.session_id}:${response.question_id}`, { response, question: request.question })
       return response
     }
     const entry = pending.get(`${request.session_id}:${request.question_id}`)

@@ -6,7 +6,7 @@
 
 只有原 App/ChatPage 一套页面，没有独立 AgentPreview。`/` 默认调用真实接口；仅开发环境 `?mock=1` 切换数据来源，仍使用原消息列表、输入框、历史对话和 CitationPanel。正式 build 中开关关闭。
 
-正式组件、契约、响应转换和双语文案在 `frontend/src/chat/`；假数据与异步 fake transport 在 `frontend/src/mocks/`。不改后端、数据库或依赖版本。Issue #45 地区元数据、#48 状态保存未接入，不声称完成真实 Agent 联调。
+正式组件、契约、响应转换和双语文案在 `frontend/src/chat/`；假数据与异步 fake transport 在 `frontend/src/mocks/`。C5 请求使用 question，后端兼容旧请求键 message。响应提示继续使用 message。Issue #45 地区元数据、#48 状态保存未接入，不声称完成真实 Agent 联调。
 
 ## 启动与场景
 
@@ -31,7 +31,7 @@ mock 模式文档列表为空，禁用文档写操作，不请求真实后端，
 
 - `select` 的 `options` 为非空字符串数组。提交原始选项值，保留首尾空格；CN/KR 可以显示本地化名称。
 - `text` 的 `options` 默认 `[]`，提交字符串。同一轮可以混合 `select` 和 `text`，填齐必填条件后一次提交 `conditions`。
-- 每个聊天独立 UUID session_id。补充回传原问题、原 question_id、conditions；fake 按两个 ID 隔离并拒绝更换原问题。
+- 每个聊天独立 UUID session_id。补充通过 question 回传原问题，并带上原 question_id、conditions；fake 按两个 ID 隔离并拒绝更换原问题。
 - 发送中不重复提交；失败在表单内保留输入与 ID；取消/切换聊天/离开 Chat 会取消请求，防止晚到结果进入其他聊天。
 - 成功后原追问标为已提交，不能重复补充；回答继续走原消息和引用侧栏。
 - 冲突双方通过原 evidence_id 查找，特意使用 E5/E2 乱序样例；展示连续编号，正文隐藏标号，不改变 API ID。
@@ -58,7 +58,7 @@ git diff --check
 
 在正常 `/` 入口使用真实 `/api/chat`，按顺序验证：
 
-1. 缺少必要条件时收到 `NEEDS_CLARIFICATION`。分别验证 `select`、`text` 和混合条件表单。检查补充请求携带原问题、原 `session_id`、原 `question_id` 和字符串映射 `conditions`。
+1. 缺少必要条件时收到 `NEEDS_CLARIFICATION`。分别验证 `select`、`text` 和混合条件表单。首次提问和补充请求均用 `question` 传原问题。补充时带上原 `session_id`、原 `question_id` 和字符串映射 `conditions`，例如 `{"session_id":"session_001","question_id":"q_003","question":"我携带的物品需要申报吗？","conditions":{"destination_country":"CN","item_name":"香水"}}`。
 2. 后端恢复同一轮 Agent 状态并返回回答。用两个聊天交叉发送补充条件，核对结果各自归入原聊天；验证请求失败后表单保留输入，可以重试。
 3. 收到 `CONFLICTING_EVIDENCE` 时核对双方 `evidence_id` 均能关联对应文件、PDF 物理页码和原文。点击两侧引用，确认右栏同步切换。
 4. 在 `single` 模式复测普通回答、拒答、无文档及系统错误，确认旧入口仍可用。

@@ -7,7 +7,7 @@ import { createChatMock } from '../src/mocks/chat-transport.ts'
 import { convertC5ChatResponse } from '../src/chat/response.ts'
 
 const pending = clarificationFixture(false)
-const request = () => ({ session_id: sessionId, question_id: pending.question_id, message: originalQuestion(false), conditions: { destination_country: 'CN' } })
+const request = () => ({ session_id: sessionId, question_id: pending.question_id, question: originalQuestion(false), conditions: { destination_country: 'CN' } })
 
 test('conditions validate all select/text fields and reject blank/unknown options', () => {
   const questions = clarificationFixture(false, true).clarification.questions
@@ -42,8 +42,8 @@ test('one simulated failure preserves request for successful retry', async () =>
   const transport = createMockTransport(1)
   transport.failNext()
   const payload = request()
-  await assert.rejects(transport.submit(payload, pending, payload.message, false, new AbortController().signal), /MOCK_NETWORK_ERROR/)
-  const result = await transport.submit(payload, pending, payload.message, false, new AbortController().signal)
+  await assert.rejects(transport.submit(payload, pending, payload.question, false, new AbortController().signal), /MOCK_NETWORK_ERROR/)
+  const result = await transport.submit(payload, pending, payload.question, false, new AbortController().signal)
   assert.equal(transport.calls, 2)
   assert.equal(result.status, 'ANSWERED')
   assert.deepEqual(transport.lastRequest, payload)
@@ -59,7 +59,7 @@ test('cancellation rejects pending work instead of appending a late answer', asy
 
 test('wrong question/session/condition never reaches fake request', async () => {
   const transport = createMockTransport(1)
-  for (const change of [{ question_id: 'wrong' }, { session_id: 'wrong' }, { message: 'new question' }, { conditions: { destination_country: 'US' } }]) {
+  for (const change of [{ question_id: 'wrong' }, { session_id: 'wrong' }, { question: 'new question' }, { conditions: { destination_country: 'US' } }]) {
     await assert.rejects(transport.submit({ ...request(), ...change }, pending, originalQuestion(false), false, new AbortController().signal), /INVALID_MOCK_REQUEST/)
   }
   assert.equal(transport.calls, 0)
@@ -118,12 +118,12 @@ test('all legacy statuses survive conversion', () => {
 test('mock boundary isolates chats and keeps original question on followup', async () => {
   const send = createChatMock()
   const signal = new AbortController().signal
-  const first = await send({ message: '原问题', session_id: 'session-A' }, signal, false)
-  const second = await send({ message: '另一个问题', session_id: 'session-B' }, signal, false)
+  const first = await send({ question: '原问题', session_id: 'session-A' }, signal, false)
+  const second = await send({ question: '另一个问题', session_id: 'session-B' }, signal, false)
   assert.notEqual(first.question_id, second.question_id)
-  const followup = { message: '原问题', session_id: 'session-A', question_id: first.question_id, conditions: { destination_country: 'CN' } }
+  const followup = { question: '原问题', session_id: 'session-A', question_id: first.question_id, conditions: { destination_country: 'CN' } }
   await assert.rejects(send({ ...followup, session_id: 'session-B' }, signal, false), /CLARIFICATION_EXPIRED/)
-  await assert.rejects(send({ ...followup, message: '改成别的问题' }, signal, false), /INVALID_MOCK_REQUEST/)
+  await assert.rejects(send({ ...followup, question: '改成别的问题' }, signal, false), /INVALID_MOCK_REQUEST/)
   const answer = await send(followup, signal, false)
   assert.equal(answer.status, 'ANSWERED')
   assert.equal(answer.question_id, first.question_id)

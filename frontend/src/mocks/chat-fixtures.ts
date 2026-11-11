@@ -48,7 +48,7 @@ export function createMockTransport(delay = 650) {
     get lastRequest() { return lastRequest },
     async submit(request: FollowupRequest, pending: AgentResponse, question: string, korean: boolean, signal: AbortSignal) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (request.session_id !== sessionId || request.question_id !== pending.question_id || request.message !== question
+      if (request.session_id !== sessionId || request.question_id !== pending.question_id || request.question !== question
         || !validConditions(pending.clarification?.questions ?? [], request.conditions)) throw new Error('INVALID_MOCK_REQUEST')
       calls += 1
       lastRequest = structuredClone(request)

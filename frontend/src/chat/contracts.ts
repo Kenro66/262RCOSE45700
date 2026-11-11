@@ -12,9 +12,9 @@ export type AgentResponse = {
   answer: string | null; citations: Citation[]; message: string | null
   question_id?: string; clarification?: Clarification | null; conflict?: Conflict | null
 }
-export type ChatRequest = { message: string; session_id?: string; question_id?: string; conditions?: Record<string, string> }
+export type ChatRequest = { question: string; session_id?: string; question_id?: string; conditions?: Record<string, string> }
 export type FollowupRequest = {
-  session_id: string; question_id: string; message: string; conditions: Record<string, string>
+  session_id: string; question_id: string; question: string; conditions: Record<string, string>
 }
 
 export function validConditions(questions: Question[], conditions: Record<string, string>) {
