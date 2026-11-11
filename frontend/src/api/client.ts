@@ -78,9 +78,9 @@ export function uploadDocument(file: File): Promise<ApiDocument> {
 // ========================================
 
 // 使用后端返回的 document_id 删除真实文件
-export function deleteDocument(documentId: string): Promise<unknown> {
+export function deleteDocument(document_id: string): Promise<unknown> {
   return apiRequest<unknown>(
-    `/documents/${encodeURIComponent(documentId)}`,
+    `/documents/${encodeURIComponent(document_id)}`,
     {
       method: 'DELETE',
     }

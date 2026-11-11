@@ -18,22 +18,15 @@ type Page = 'documents' | 'chat'
 type Status = 'Ready' | 'Processing' | 'Failed'
 type ChatResponse = ReturnType<typeof convertC5ChatResponse>
 type C5Citation = { evidence_id: string; filename: string; page: number; quote: string; display_id?: number }
- type DocumentItem = {
+type DocumentItem = Omit<C1Document, 'status'> & {
   id: number
-  documentId?: string
-  name: string
-  date: string
   status: Status
   size: string
-  pages: number | null
-  errorMessage?: string
 }
 
-type Citation = {
+type Citation = Pick<C5Citation, 'filename' | 'quote'> & {
   id: number
-  document: string
   reference: string
-  text: string
 }
 
 type Message = {
@@ -75,9 +68,7 @@ function convertC1Document(
 ): DocumentItem {
   return {
     id,
-    documentId: doc.document_id,
-    name: doc.filename,
-    date: doc.uploaded_at,
+    ...doc,
     status:
       doc.status === 'READY'
         ? 'Ready'
@@ -85,8 +76,6 @@ function convertC1Document(
           ? 'Processing'
           : 'Failed',
     size,
-    pages: doc.page_count,
-    errorMessage: doc.error_message ?? undefined
   }
 }
 
@@ -315,15 +304,15 @@ function DocumentDetails({ document, onClose }: { document: DocumentItem | null;
         <div><span className="eyebrow">{t('details.eyebrow')}</span><div className="panel-title">{t('details.title')}</div></div>
         <Button variant="icon" aria-label={t('details.close')} onClick={onClose}><Icon name="close"/></Button>
       </div>
-      <div className="detail-name">{document.name}</div>
+      <div className="detail-name">{document.filename}</div>
       <StatusBadge status={document.status}/>
       <div className="metadata">
         <div><span>{t('details.fileSize')}</span><strong>{document.size}</strong></div>
-        <div><span>{t('details.pages')}</span><strong>{document.pages ? t('details.pageUnit', { count: document.pages }) : '—'}</strong></div>
+        <div><span>{t('details.pages')}</span><strong>{document.page_count ? t('details.pageUnit', { count: document.page_count }) : '—'}</strong></div>
       </div>
       {document.status === 'Ready' && <div className="process-summary"><div className="summary-icon"><Icon name="check" size={16}/></div><div><strong>{t('details.readyTitle')}</strong><p>{t('details.readyBody')}</p></div></div>}
       {document.status === 'Processing' && <div className="process-summary processing"><span className="spinner"/><div><strong>{t('details.processingTitle')}</strong><p>{t('details.processingBody')}</p><div className="progress"><span/></div></div></div>}
-      {document.status === 'Failed' && <div className="process-summary failed"><div className="summary-icon"><Icon name="warning" size={16}/></div><div><strong>{t('details.failedTitle')}</strong><p>{localizeBackendMessage(document.errorMessage, t) ?? t('details.failedBody')}</p></div></div>}
+      {document.status === 'Failed' && <div className="process-summary failed"><div className="summary-icon"><Icon name="warning" size={16}/></div><div><strong>{t('details.failedTitle')}</strong><p>{localizeBackendMessage(document.error_message ?? undefined, t) ?? t('details.failedBody')}</p></div></div>}
     </aside>
   )
 }
@@ -346,7 +335,7 @@ function DocumentsPage({
   const [search, setSearch] = useState('')
   const [uploading, setUploading] = useState(false)
   const headerFileInputRef = useRef<HTMLInputElement>(null)
-  const shownDocuments = documents.filter((document) => document.name.toLowerCase().includes(search.toLowerCase()))
+  const shownDocuments = documents.filter((document) => document.filename.toLowerCase().includes(search.toLowerCase()))
 
   const handleUpload = async (file: File) => {
   // 上传前检查文件格式
@@ -387,13 +376,13 @@ alert(errorMessage)
  const confirmDelete = async () => {
   if (!deleting) return
 
-  if (!deleting.documentId) {
+  if (!deleting.document_id) {
     alert(t('documents.missingId'))
     return
   }
 
   try {
-    await deleteDocument(deleting.documentId)
+    await deleteDocument(deleting.document_id)
 
     setDocuments((current) =>
       current.filter((document) => document.id !== deleting.id)
@@ -482,9 +471,9 @@ return (
               <div className="table-head"><span>{t('documents.columnName')}</span><span>{t('documents.columnStatus')}</span><span/></div>
               {shownDocuments.map((document) => (
                 <div className={`table-row ${selected?.id === document.id ? 'selected' : ''}`} key={document.id} onClick={() => setSelected(document)}>
-                  <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.name}</strong><small>{document.size}</small></div></div>
+                  <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.filename}</strong><small>{document.size}</small></div></div>
                   <StatusBadge status={document.status}/>
-                  <Button variant="icon" className="delete-button" aria-label={t('documents.deleteAria', { name: document.name })} onClick={(event) => { event.stopPropagation(); setDeleting(document) }}><Icon name="trash" size={17}/></Button>
+                  <Button variant="icon" className="delete-button" aria-label={t('documents.deleteAria', { name: document.filename })} onClick={(event) => { event.stopPropagation(); setDeleting(document) }}><Icon name="trash" size={17}/></Button>
                 </div>
               ))}
             </div>
@@ -498,7 +487,7 @@ return (
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-icon"><Icon name="trash" size={22}/></div>
             <h2 id="delete-title">{t('documents.deleteTitle')}</h2>
-            <p>{t('documents.deleteBody', { name: deleting.name })}</p>
+            <p>{t('documents.deleteBody', { name: deleting.filename })}</p>
             <div className="modal-actions"><Button onClick={() => setDeleting(null)}>{t('common.cancel')}</Button><Button variant="danger" onClick={confirmDelete}>{t('common.confirmDelete')}</Button></div>
           </div>
         </div>
@@ -614,7 +603,7 @@ function CitationPanel({
               <Icon name="file" size={19} />
             </span>
             <div>
-              <strong>{citation.document}</strong>
+              <strong>{citation.filename}</strong>
               <span>{t('citations.sourcePdf')}</span>
             </div>
           </div>
@@ -629,7 +618,7 @@ function CitationPanel({
             <span>{t('citations.verbatim')}</span>
           </div>
 
-          <blockquote>{citation.text}</blockquote>
+          <blockquote>{citation.quote}</blockquote>
 
 
         </div>
@@ -685,9 +674,9 @@ function ChatPage({
     const currentCitations: Citation[] =
   citationMessage?.citationDetails?.map((item, index) => ({
     id: item.display_id ?? (Number(item.evidence_id.replace(/^E/i, '')) || index + 1),
-    document: item.filename,
+    filename: item.filename,
     reference: `PDF p.${item.page}`,
-    text: item.quote,
+    quote: item.quote,
   })) ?? []
 
   const automaticResponseContent: Record<'INSUFFICIENT_EVIDENCE' | 'NO_READY_DOCUMENTS' | 'SYSTEM_ERROR', { title: string; body: string; action: string }> = {
