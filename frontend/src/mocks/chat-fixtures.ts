@@ -1,7 +1,7 @@
 import type { AgentResponse, FollowupRequest } from '../chat/contracts.ts'
 import { validConditions } from '../chat/contracts.ts'
 
-export const sessionId = 'mock-session-issue49'
+export const session_id = 'mock-session-issue49'
 export function clarificationFixture(korean: boolean, multiple = false): AgentResponse {
   return {
     status: 'NEEDS_CLARIFICATION', answer: null, citations: [], message: null,
@@ -48,7 +48,7 @@ export function createMockTransport(delay = 650) {
     get lastRequest() { return lastRequest },
     async submit(request: FollowupRequest, pending: AgentResponse, question: string, korean: boolean, signal: AbortSignal) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (request.session_id !== sessionId || request.question_id !== pending.question_id || request.question !== question
+      if (request.session_id !== session_id || request.question_id !== pending.question_id || request.question !== question
         || !validConditions(pending.clarification?.questions ?? [], request.conditions)) throw new Error('INVALID_MOCK_REQUEST')
       calls += 1
       lastRequest = structuredClone(request)

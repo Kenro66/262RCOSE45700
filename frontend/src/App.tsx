@@ -51,7 +51,7 @@ type Message = {
 }
 
 type Conversation = {
-  sessionId: string
+  session_id: string
   id: number
   title: string
   updatedAt: string
@@ -722,7 +722,7 @@ function ChatPage({
     activeChatRequest.current = controller
     setLoading(true); setCitationMessageId(null); setSelectedCitation(1)
     try {
-      const result = await sendChatMessage(question, controller.signal, followup ?? { session_id: conversation!.sessionId })
+      const result = await sendChatMessage(question, controller.signal, followup ?? { session_id: conversation!.session_id })
       if (controller.signal.aborted) return
       const response = convertC5ChatResponse(result)
       if (pendingId && response.status === 'SYSTEM_ERROR') throw new Error('FOLLOWUP_FAILED')
@@ -816,7 +816,7 @@ const sendMessage = () => submitQuestion(input)
                       {message.responseStatus === 'NEEDS_CLARIFICATION' && message.clarification && <ClarificationForm
                         clarification={message.clarification} resolved={message.followupResolved} busy={loading}
                         onSubmit={(conditions, signal) => requestResponse(conversation!.id, message.request!, {
-                          session_id: conversation!.sessionId, question_id: message.question_id!, conditions,
+                          session_id: conversation!.session_id, question_id: message.question_id!, conditions,
                         }, message.id, signal)}/>}
                       {message.responseStatus === 'CONFLICTING_EVIDENCE' && message.apiResponse && <ConflictEvidence response={message.apiResponse} onSelect={citation => {
                         setCitationMessageId(message.id)
@@ -902,13 +902,13 @@ useEffect(() => {
 
   return () => { window.clearInterval(timer); documentsRequest.current += 1 }
 }, [])
-  const [conversations, setConversations] = useState<Conversation[]>(() => [{ id: 1, sessionId: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }])
+  const [conversations, setConversations] = useState<Conversation[]>(() => [{ id: 1, session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }])
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(1)
   const selected = useMemo(() => documents.find((document) => document.id === selectedId) ?? null, [documents, selectedId])
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null, [conversations, selectedConversationId])
 
   const newConversation = () => {
-    const conversation: Conversation = { id: Date.now(), sessionId: crypto.randomUUID(), title: '', updatedAt: t('common.justNow'), messages: [], isUntitled: true }
+    const conversation: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: t('common.justNow'), messages: [], isUntitled: true }
     setConversations((current) => [conversation, ...current])
     setSelectedConversationId(conversation.id)
     setPage('chat')
@@ -927,7 +927,7 @@ useEffect(() => {
   const deleteConversation = (conversationId: number) => {
     const remaining = conversations.filter((conversation) => conversation.id !== conversationId)
     if (remaining.length === 0) {
-      const emptyConversation: Conversation = { id: Date.now(), sessionId: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }
+      const emptyConversation: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }
       setConversations([emptyConversation])
       setSelectedConversationId(emptyConversation.id)
       return

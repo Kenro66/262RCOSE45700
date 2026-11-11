@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { conflictGroups, displayCitations, validConditions } from '../src/chat/contracts.ts'
-import { clarificationFixture, conflictFixture, createMockTransport, originalQuestion, sessionId } from '../src/mocks/chat-fixtures.ts'
+import { clarificationFixture, conflictFixture, createMockTransport, originalQuestion, session_id } from '../src/mocks/chat-fixtures.ts'
 import { previewMessages } from '../src/chat/messages.ts'
 import { createChatMock } from '../src/mocks/chat-transport.ts'
 import { convertC5ChatResponse } from '../src/chat/response.ts'
 
 const pending = clarificationFixture(false)
-const request = () => ({ session_id: sessionId, question_id: pending.question_id, question: originalQuestion(false), conditions: { destination_country: 'CN' } })
+const request = () => ({ session_id: session_id, question_id: pending.question_id, question: originalQuestion(false), conditions: { destination_country: 'CN' } })
 
 test('conditions validate all select/text fields and reject blank/unknown options', () => {
   const questions = clarificationFixture(false, true).clarification.questions
