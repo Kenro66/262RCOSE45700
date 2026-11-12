@@ -1,0 +1,74 @@
+[
+  {
+    "source_id": "KR01",
+    "sha256": "4426ea7b713be1a3202238b9fcc171c5aee88992b752e44fc90a5ae81625639b",
+    "metadata": {
+      "country": "KR",
+      "direction": "BOTH",
+      "effective_date": "2026-04-01",
+      "applicable_persons": [
+        "GENERAL_TRAVELER",
+        "RESIDENT_TRAVELER",
+        "NON_RESIDENT_TRAVELER",
+        "CREW",
+        "MINOR"
+      ]
+    }
+  },
+  {
+    "source_id": "KR02",
+    "sha256": "bc73d8299eddc9ef6d532bdb3bf5a7a56731ac220e5ace106448bfb5a916d9ed",
+    "metadata": {
+      "country": "KR",
+      "direction": "BOTH",
+      "effective_date": "2026-07-31",
+      "applicable_persons": [
+        "GENERAL_TRAVELER",
+        "NON_RESIDENT_TRAVELER",
+        "CREW",
+        "MINOR"
+      ]
+    }
+  },
+  {
+    "source_id": "CN01",
+    "sha256": "563492da88094ceeb10dcef7ccbd93eee8aea4aec740ee502bcfaad65cf68ad4",
+    "metadata": {
+      "country": "CN",
+      "direction": "INBOUND",
+      "effective_date": "2024-12-01",
+      "applicable_persons": [
+        "GENERAL_TRAVELER",
+        "RESIDENT_TRAVELER",
+        "NON_RESIDENT_TRAVELER",
+        "FREQUENT_TRAVELER",
+        "CREW",
+        "MINOR"
+      ]
+    }
+  },
+  {
+    "source_id": "CN02",
+    "sha256": "94d9381f108abaa6882a963546e16976c8b64a89612fb8335249058afbce1e06",
+    "metadata": {
+      "country": "CN",
+      "direction": "BOTH",
+      "effective_date": "2025-04-01",
+      "applicable_persons": [
+        "GENERAL_TRAVELER"
+      ]
+    }
+  },
+  {
+    "source_id": "CN03",
+    "sha256": "7cfca4753929ee04565b3d0643cfdd45a70673e76ea454a9ab7ad641ab425a97",
+    "metadata": {
+      "country": "CN",
+      "direction": "BOTH",
+      "effective_date": "2025-04-01",
+      "applicable_persons": [
+        "GENERAL_TRAVELER"
+      ]
+    }
+  }
+]

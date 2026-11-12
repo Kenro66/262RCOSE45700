@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS documents (
         CHECK (status IN ('PROCESSING', 'READY', 'FAILED')),
     error_message TEXT,                           -- FAILED 时写原因
     page_count    INTEGER,                        -- READY 后才有
+    country VARCHAR(2),
+    direction VARCHAR(8),
+    effective_date DATE,
+    applicable_persons JSONB,
     uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

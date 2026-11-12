@@ -1,4 +1,6 @@
-"""文件上传服务（Issue #7）。
+
+"""
+文件上传服务（Issue #7）。
 
 POST   /api/documents          上传 PDF（multipart，字段名 file），立即 201 + C1(PROCESSING)
 GET    /api/documents          C1 列表（最新在前）
@@ -10,12 +12,16 @@ DELETE /api/documents/{id}     删除 DB 记录（级联 ParsedPage/C2）与 upl
 - 非空、不超过 25MB
 
 上传成功即返回 status=PROCESSING 的 C1；
-后台跑 pipeline（解析→切分→向量化→入库），失败置 FAILED + error_message
-并删除 uploads/ 里的原文件。
+
+Issue #45：手动上传流程不变；按完整 PDF 原始字节的 SHA-256 匹配登记信息，
+在创建 PROCESSING 记录时写入四项适用条件，并随首次 POST 响应返回。
+未匹配时四项均为 null，表示未登记或未确认，不表示不适用。
+
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -28,6 +34,7 @@ from starlette.concurrency import run_in_threadpool
 from app.contracts import DocumentRecord
 from app.database import SessionFactory
 from app.documents.pipeline import ProcessingResult
+from app.documents.metadata import lookup_metadata
 from app.storage.repo import (
     create_processing_document,
     delete_document,
@@ -47,14 +54,18 @@ logger = logging.getLogger(__name__)
 
 DownstreamProcessor = Callable[[str, Path, str], Awaitable[ProcessingResult]]
 DocumentIdGenerator = Callable[[], Awaitable[str]]
-ProcessingRecordCreator = Callable[[str, str], Awaitable[Any]]
+ProcessingRecordCreator = Callable[..., Awaitable[Any]]
 FailureMarker = Callable[[str, str], Awaitable[None]]
 SessionMaker = Callable[[], Any]
 
 
-async def _save_pdf(upload: UploadFile, destination: Path) -> None:
-    """流式写入临时文件，校验通过后才发布为正式文件。"""
+async def _save_pdf(upload: UploadFile, destination: Path) -> str:
+    """流式保存并校验 PDF，返回完整文件原始字节的 SHA-256（#45）。
+
+    校验通过后才发布正式文件；哈希不依赖文件名或解析后的文本。
+    """
     temporary = destination.with_suffix(".uploading")
+    digest = hashlib.sha256()
     total_bytes = 0
     first_chunk = True
 
@@ -68,6 +79,8 @@ async def _save_pdf(upload: UploadFile, destination: Path) -> None:
                     if not chunk.startswith(b"%PDF-"):
                         raise ValueError(ERROR_NOT_PDF)
 
+                # #45：每个原始字节块参与摘要，不额外读取整份 PDF 到内存。
+                digest.update(chunk)
                 total_bytes += len(chunk)
                 if total_bytes > MAX_PDF_BYTES:
                     raise ValueError(
@@ -79,6 +92,7 @@ async def _save_pdf(upload: UploadFile, destination: Path) -> None:
             raise ValueError("Uploaded PDF is empty")
 
         await run_in_threadpool(os.replace, temporary, destination)
+        return digest.hexdigest()
     except BaseException:
         await _delete_if_present(temporary)
         raise
@@ -133,8 +147,12 @@ def create_documents_router(
         pdf_path = UPLOAD_DIR / f"{document_id}.pdf"
 
         try:
-            await _save_pdf(file, pdf_path)
-            record = await create_processing_record(document_id, filename)
+            digest = await _save_pdf(file, pdf_path)
+            # #45：先匹配登记，再随文档记录一起写入，确保首次响应已有四项条件。
+            # 请求仍然只提交 file；未匹配时 lookup_metadata 返回四项空值。
+            record = await create_processing_record(
+                document_id, filename, metadata=lookup_metadata(digest)
+            )
         except ValueError as exc:
             await _delete_if_present(pdf_path)
             raise HTTPException(
@@ -150,15 +168,15 @@ def create_documents_router(
         async def process_in_background() -> None:
             try:
                 result = await process_document(document_id, pdf_path, filename)
-            except Exception as exc:  # pipeline 抛出未預期異常 → 兜底置 FAILED
+            except Exception as exc:  # pipeline 抛出未预期异常 → 兜底置 FAILED
                 await mark_failed(document_id, str(exc) or type(exc).__name__)
                 await _delete_if_present(pdf_path)
                 return
             if result.status == "FAILED":
-                # pipeline 正常返回 FAILED：確保 C1 進入終態（冪等），再刪原檔
+                # pipeline 正常返回 FAILED：确保 C1 进入终态（幂等），再删原文件
                 await mark_failed(document_id, result.reason or "處理失敗")
                 await _delete_if_present(pdf_path)
-            # READY：保持 pipeline 已寫入的 READY 狀態
+            # READY：保持 pipeline 已写入的 READY 状态
 
         background_tasks.add_task(process_in_background)
         return to_document_record(record)
