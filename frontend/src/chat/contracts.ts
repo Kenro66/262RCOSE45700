@@ -14,7 +14,7 @@ export type AgentResponse = {
 }
 export type ChatRequest = { message: string; session_id: string; question_id?: never; conditions?: never } | FollowupRequest
 export type FollowupRequest = {
-  session_id: string; question_id: string; message?: never; conditions: Record<string, string>
+  session_id: string; question_id: string; message: string; conditions: Record<string, string>
 }
 
 export function validConditions(questions: Question[], conditions: Record<string, string>) {

@@ -41,6 +41,7 @@ type Message = {
   question_id?: string
   clarification?: AgentResponse['clarification']
   followupResolved?: boolean
+  followupValues?: Record<string, string>
 }
 
 type Conversation = {
@@ -53,6 +54,7 @@ type Conversation = {
 }
 
 type C1Document = {
+  country?: 'CN' | 'KR' | null
   document_id: string
   filename: string
   status: 'READY' | 'PROCESSING' | 'FAILED'
@@ -468,10 +470,11 @@ return (
               <div className="list-meta">{t('documents.recent')} <Icon name="chevron" size={14}/></div>
             </div>
             <div className="document-table">
-              <div className="table-head"><span>{t('documents.columnName')}</span><span>{t('documents.columnStatus')}</span><span/></div>
+              <div className="table-head"><span>{t('documents.columnName')}</span><span>{t('documents.columnCountry')}</span><span>{t('documents.columnStatus')}</span><span/></div>
               {shownDocuments.map((document) => (
                 <div className={`table-row ${selected?.id === document.id ? 'selected' : ''}`} key={document.id} onClick={() => setSelected(document)}>
                   <div className="file-cell"><span className="pdf-icon"><Icon name="file" size={17}/></span><div><strong>{document.filename}</strong><small>{document.size}</small></div></div>
+                  <span className="document-country">{t(document.country === 'CN' ? 'documents.countryCN' : document.country === 'KR' ? 'documents.countryKR' : 'documents.countryUnknown')}</span>
                   <StatusBadge status={document.status}/>
                   <Button variant="icon" className="delete-button" aria-label={t('documents.deleteAria', { name: document.filename })} onClick={(event) => { event.stopPropagation(); setDeleting(document) }}><Icon name="trash" size={17}/></Button>
                 </div>
@@ -697,7 +700,7 @@ function ChatPage({
     },
   }
 
-  useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
+  useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [conversation?.id, messages.length, loading])
 
   const requestResponse = async (
     conversationId: number, question: string,
@@ -804,8 +807,12 @@ const sendMessage = () => submitQuestion(input)
                         : message.body}</div>
                       {message.responseStatus === 'NEEDS_CLARIFICATION' && message.clarification && <ClarificationForm
                         clarification={message.clarification} resolved={message.followupResolved} busy={loading}
+                        values={message.followupValues}
+                        onChange={(field, value) => onSetMessages(conversation!.id, current => current.map(item =>
+                          item.id === message.id ? { ...item, followupValues: { ...item.followupValues, [field]: value } } : item
+                        ))}
                         onSubmit={(conditions, signal) => requestResponse(conversation!.id, message.request!, {
-                          session_id: conversation!.session_id, question_id: message.question_id!, conditions,
+                          session_id: conversation!.session_id, question_id: message.question_id!, message: message.request!, conditions,
                         }, message.id, signal)}/>}
                       {message.responseStatus === 'CONFLICTING_EVIDENCE' && message.apiResponse && <ConflictEvidence response={message.apiResponse} onSelect={citation => {
                         setCitationMessageId(message.id)

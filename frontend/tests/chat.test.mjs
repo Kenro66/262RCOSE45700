@@ -7,7 +7,7 @@ import { createChatMock } from '../src/mocks/chat-transport.ts'
 import { convertC5ChatResponse } from '../src/chat/response.ts'
 
 const pending = clarificationFixture(false)
-const request = () => ({ session_id: session_id, question_id: pending.question_id, conditions: { destination_country: 'CN' } })
+const request = () => ({ session_id: session_id, question_id: pending.question_id, message: '原问题', conditions: { destination_country: 'CN' } })
 
 test('conditions validate all select/text fields and reject blank/unknown options', () => {
   const questions = clarificationFixture(false, true).clarification.questions
@@ -115,13 +115,14 @@ test('all legacy statuses survive conversion', () => {
   }
 })
 
-test('mock boundary isolates chats and resumes without resending the original question', async () => {
+test('mock boundary isolates chats and resumes with the original question', async () => {
   const send = createChatMock()
   const signal = new AbortController().signal
   const first = await send({ message: '原问题', session_id: 'session-A' }, signal, false)
   const second = await send({ message: '另一个问题', session_id: 'session-B' }, signal, false)
   assert.notEqual(first.question_id, second.question_id)
-  const followup = { session_id: 'session-A', question_id: first.question_id, conditions: { destination_country: 'CN' } }
+  const followup = { session_id: 'session-A', question_id: first.question_id, message: '原问题', conditions: { destination_country: 'CN' } }
+  await assert.rejects(send({ ...followup, message: '其他问题' }, signal, false), /INVALID_MOCK_REQUEST/)
   await assert.rejects(send({ ...followup, session_id: 'session-B' }, signal, false), /CLARIFICATION_EXPIRED/)
   const answer = await send(followup, signal, false)
   assert.equal(answer.status, 'ANSWERED')

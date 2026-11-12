@@ -40,6 +40,7 @@ export async function apiRequest<T>(
 
 // 定义后端返回的 PDF 文件信息格式
 export type ApiDocument = {
+  country?: 'CN' | 'KR' | null
   document_id: string           // 文件唯一 ID，删除文件时使用
   filename: string              // PDF 文件名
   status: 'READY' | 'PROCESSING' | 'FAILED'  // 文件处理状态
