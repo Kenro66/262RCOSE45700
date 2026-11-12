@@ -72,7 +72,7 @@ def create_chat_router(
             session_id = request.session_id
             if session_id is not None and not session_id.strip():
                 session_id = None
-            raw = await _invoke(answer_fn, request.question, session_id)
+            raw = await _invoke(answer_fn, request.message, session_id)
             result = AnswerResult.model_validate(
                 raw.model_dump() if isinstance(raw, BaseModel) else raw
             )

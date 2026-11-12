@@ -71,12 +71,12 @@ def _build_app_for(db, answer_fn) -> FastAPI:
 # ---------------------------------------------------------------------------
 
 
-async def _post_chat(app: FastAPI, message: str, session_id: str | None = None, expected_status: int = 200, *, request_field: str = "message") -> dict:
+async def _post_chat(app: FastAPI, message: str, session_id: str | None = None, expected_status: int = 200) -> dict:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
             "/api/chat",
-            json={"session_id": session_id, request_field: message},
+            json={"session_id": session_id, "message": message},
         )
         assert response.status_code == expected_status, response.text
         return response.json()
@@ -154,8 +154,7 @@ async def test_chat_system_error_when_answer_raises(db) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("request_field", ["question", "message"])
-async def test_chat_answered_with_citations(db, request_field) -> None:
+async def test_chat_answered_with_citations(db) -> None:
     """3 份 READY 文件：answer() 正常返回 → ANSWERED，citations 每条有 filename/page/quote。"""
 
     async def fake_answer(message: str, session_id=None) -> AnswerResult:
@@ -175,9 +174,7 @@ async def test_chat_answered_with_citations(db, request_field) -> None:
     ):
         await _seed_ready_document(db, doc_id, name)
 
-    body = await _post_chat(
-        _build_app_for(db, fake_answer), "处理时限是多少天？", request_field=request_field
-    )
+    body = await _post_chat(_build_app_for(db, fake_answer), "处理时限是多少天？")
 
     assert body["status"] == "ANSWERED"
     assert body["answer"]

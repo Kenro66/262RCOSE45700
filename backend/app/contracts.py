@@ -15,7 +15,7 @@
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import AliasChoices, AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 # ---------- 状态 ----------
@@ -124,7 +124,7 @@ class ChatRequest(BaseModel):
     """C5 请求：POST /api/chat。"""
 
     session_id: Optional[str] = None
-    question: str = Field(min_length=1, validation_alias=AliasChoices("question", "message"))
+    message: str = Field(min_length=1)
 
 
 class Citation(BaseModel):

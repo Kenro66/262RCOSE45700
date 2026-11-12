@@ -12,7 +12,6 @@ export function clarificationFixture(korean: boolean, multiple = false): AgentRe
     ] }, conflict: null,
   }
 }
-export const originalQuestion = (korean: boolean) => korean ? '담배를 얼마나 가지고 입국할 수 있나요?' : '我可以携带多少香烟入境？'
 
 export function conflictFixture(korean: boolean): AgentResponse {
   return {
@@ -46,9 +45,9 @@ export function createMockTransport(delay = 650) {
     failNext() { failNext = true },
     get calls() { return calls },
     get lastRequest() { return lastRequest },
-    async submit(request: FollowupRequest, pending: AgentResponse, question: string, korean: boolean, signal: AbortSignal) {
+    async submit(request: FollowupRequest, pending: AgentResponse, korean: boolean, signal: AbortSignal) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (request.session_id !== session_id || request.question_id !== pending.question_id || request.question !== question
+      if (request.session_id !== session_id || request.question_id !== pending.question_id
         || !validConditions(pending.clarification?.questions ?? [], request.conditions)) throw new Error('INVALID_MOCK_REQUEST')
       calls += 1
       lastRequest = structuredClone(request)

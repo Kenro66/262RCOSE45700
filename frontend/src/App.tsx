@@ -2,7 +2,7 @@ import { ClarificationForm, ConflictEvidence } from './chat/AgentMessages'
 import { convertC5ChatResponse, type ResponseStatus } from './chat/response'
 import { mockChatEnabled } from './chat/mock-mode'
 import { previewMessages } from './chat/messages'
-import type { AgentResponse, ChatRequest } from './chat/contracts'
+import type { AgentResponse, FollowupRequest } from './chat/contracts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from './i18n/I18nContext'
 import type { TranslationKey } from './i18n/zh-CN'
@@ -701,7 +701,7 @@ function ChatPage({
 
   const requestResponse = async (
     conversationId: number, question: string,
-    followup?: Omit<ChatRequest, 'question'>, pendingId?: number, signal?: AbortSignal,
+    followup?: FollowupRequest, pendingId?: number, signal?: AbortSignal,
   ) => {
     if (activeChatRequest.current) throw new Error('REQUEST_IN_PROGRESS')
     const controller = new AbortController()
@@ -711,7 +711,7 @@ function ChatPage({
     activeChatRequest.current = controller
     setLoading(true); setCitationMessageId(null); setSelectedCitation(1)
     try {
-      const result = await sendChatMessage(question, controller.signal, followup ?? { session_id: conversation!.session_id })
+      const result = await sendChatMessage(followup ?? { message: question, session_id: conversation!.session_id }, controller.signal)
       if (controller.signal.aborted) return
       const response = convertC5ChatResponse(result)
       if (pendingId && response.status === 'SYSTEM_ERROR') throw new Error('FOLLOWUP_FAILED')

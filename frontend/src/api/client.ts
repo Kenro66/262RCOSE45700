@@ -137,8 +137,7 @@ export type ApiChatCitation = {
 
 export type ApiChatResponse = AgentResponse
 
-export async function sendChatMessage(question: string, signal?: AbortSignal, followup?: Omit<ChatRequest, 'question'>): Promise<ApiChatResponse> {
-  const payload = { ...followup, question }
+export async function sendChatMessage(payload: ChatRequest, signal?: AbortSignal): Promise<ApiChatResponse> {
   if (mockChatEnabled) {
     const { sendMockChat } = await import('../mocks/chat-transport')
     return sendMockChat(payload, signal ?? new AbortController().signal, document.documentElement.lang === 'ko-KR')
