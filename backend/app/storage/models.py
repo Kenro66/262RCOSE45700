@@ -4,17 +4,22 @@
 字段与《MVP技术方案》及 backend/app/contracts.py 保持一致：
 - 内部（ParsedPage、chunks）按孙忠其接口文档：page_number、language
 - 对外（documents）：filename、status、error_message、page_count、uploaded_at
+
+# Issue #45：文件级适用条件；空值表示未登记或未确认，不表示不适用。
+# 国家 KR/CN，方向 INBOUND/OUTBOUND/BOTH，effective_date 为法规施行日。
+# 已有数据库需先执行 045_document_metadata.sql，ORM 定义不会自动为旧表加列。
 """
 
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -33,7 +38,7 @@ EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "1024"))
 
 
 class Document(Base):
-    """documents：文件记录（王诗琪提供，王一霖使用）。"""
+    """documents：文件记录"""
 
     __tablename__ = "documents"
 
@@ -44,6 +49,15 @@ class Document(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    
+    # Issue #45：新添加的文件适用四项条件
+    country: Mapped[str | None] = mapped_column(String(2))
+    direction: Mapped[str | None] = mapped_column(String(8))
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    # Issue #45：适用对象为多选字符串数组；PostgreSQL 使用 JSONB，None 存为 SQL NULL。
+    applicable_persons: Mapped[list[str] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
     )
     pages: Mapped[list["ParsedPage"]] = relationship(
         back_populates="document",

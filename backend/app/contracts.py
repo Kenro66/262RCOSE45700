@@ -12,6 +12,8 @@
 - 只在引用校验（qa/citation.py）里把 page_number 转成 page；文件名只有 filename 一种写法
 """
 
+from datetime import date
+from typing import Literal
 from enum import Enum
 from typing import Any, Optional
 
@@ -52,6 +54,14 @@ class DocumentRecord(BaseModel):
     error_message: Optional[str] = None  # FAILED 时写原因
     page_count: Optional[int] = Field(default=None, ge=1)  # READY 后才有
     uploaded_at: AwareDatetime  # ISO 8601，带时区
+    country: Literal["KR", "CN"] | None = None
+    direction: Literal["INBOUND", "OUTBOUND", "BOTH"] | None = None
+    effective_date: date | None = None
+    applicable_persons: list[Literal[
+        "GENERAL_TRAVELER", "RESIDENT_TRAVELER", "NON_RESIDENT_TRAVELER",
+        "FREQUENT_TRAVELER", "CREW", "MINOR",
+    ]] | None = None
+
 
 
 # ---------- ParsedPage 单页解析结果（王诗琪提供，孙忠其使用） ----------

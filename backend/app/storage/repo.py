@@ -23,6 +23,7 @@ from sqlalchemy.orm import selectinload
 from app.contracts import Chunk as ContractChunk
 from app.contracts import DocumentRecord, DocumentStatus, SearchHit
 from app.database import SessionFactory
+from app.documents.metadata import PolicyMetadata
 from app.storage.models import Chunk, Document, ParsedPage
 from app.storage.schemas import ChunkData
 
@@ -41,6 +42,11 @@ def to_document_record(document: Document) -> DocumentRecord:
         error_message=document.error_message,
         page_count=document.page_count,
         uploaded_at=uploaded_at,
+        # Issue #45：统一返回四项条件，供 POST、GET 和 get_documents(ids) 使用。
+        country=document.country,
+        direction=document.direction,
+        effective_date=document.effective_date,
+        applicable_persons=document.applicable_persons,
     )
 
 
@@ -48,6 +54,8 @@ async def create_processing_document(
     document_id: str,
     filename: str,
     session_factory: SessionMaker = SessionFactory,
+    # Issue #45：可选关键字参数，原有不传 metadata 的调用方式仍然有效。
+    *, metadata: PolicyMetadata | None = None,
 ) -> Document:
     """创建 PROCESSING 记录，客户端处理期间可轮询。"""
     async with session_factory() as session:
@@ -55,6 +63,8 @@ async def create_processing_document(
             document_id=document_id,
             filename=filename,
             status="PROCESSING",
+            # Issue #45：四项条件与文档记录在同一事务中保存；未匹配时四项均为空。
+            **(metadata or PolicyMetadata()).model_dump(),
             error_message=None,
             page_count=None,
         )
