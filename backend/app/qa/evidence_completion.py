@@ -161,15 +161,65 @@ def _condition_matches(items: list[tuple[int, str]], conditions: list[tuple[str,
     return False
 
 
+def _positive_action_forms(action: str) -> tuple[str, ...]:
+    """Elide only recognized adjuncts, retaining the complete lexical action.
+
+    A recipient can be separated only when a known manner marks its end.
+    Otherwise retain the whole predicate rather than guessing its last verb.
+    """
+    parts = re.fullmatch(
+        r"(?P<recipient>向[\u3400-\u9fff]{1,12}?(?=书面|如实|依法|及时))?"
+        r"(?P<manner>(?:(?:书面|如实|依法|及时))*)(?P<verb>[\u3400-\u9fff]{2,12})", action)
+    if parts is None:
+        return ()
+    verb = parts["verb"]
+    # These are polarity/modal operators at the parsed predicate boundary,
+    # not a keyword search over the question. Unknown modal chains abstain.
+    if re.match(r"不|未|无|免|禁止|可以|能够|应当|应该|必须|需要", verb):
+        return ()
+    recipient, manner = parts["recipient"] or "", parts["manner"]
+    return tuple(dict.fromkeys((action, recipient + verb, manner + verb, verb)))
+
+
+def _enumeration_overview(question: str | None, hit: SearchHit) -> bool:
+    """Accept bounded positive list-question forms; abstain on other wording."""
+    if not question:
+        return False
+    first = ENUMERATION.search(hit.text)
+    if first is None:
+        return False
+    heading = re.sub(r"\s+", "", hit.text[:first.start()])
+    heading = ARTICLE.sub("", heading, count=1)
+    match = re.fullmatch(
+        r"(?P<subject>[\u3400-\u9fff]{2,24})有下列(?:情形|情况|条件)之一的[，,]"
+        r"(?:应当|应该|必须|需要|应|须)(?P<action>[\u3400-\u9fff]{2,24})[：:]", heading)
+    if match is None:
+        return False
+    forms = _positive_action_forms(match["action"])
+    if not forms:
+        return False
+    query = re.sub(r"\s+", "", question)
+    subject = re.escape(match["subject"])
+    action = "(?:" + "|".join(re.escape(form) for form in forms) + ")"
+    duty = r"(?:应当|应该|必须|需要|应|须)"
+    # Match the entire clause: no negated/qualified subject prefixes, arbitrary
+    # modifiers between duty and action, or predicates from another clause.
+    prefix = r"(?:请问|请说明|请列出|请介绍|请告诉我)?" + subject
+    question_forms = (
+        prefix + r"(?:在)?(?:哪些|什么|何种)(?:情况|情形|条件)(?:下)?" + duty + action,
+        prefix + duty + action + r"的(?:全部|所有|完整)(?:的)?(?:情况|情形|条件)",
+    )
+    return any(re.fullmatch(pattern + r"[？?。]?", query) for pattern in question_forms)
+
+
 def _continuation_candidates(initial: Sequence[SearchHit], chunks: Sequence[Chunk],
                              question: str | None) -> list[SupplementalEvidence]:
     conditions = _conditions(question)
-    if not conditions:
-        return []
     by_id = {chunk.chunk_id: chunk for chunk in chunks}
     candidates = []
     for hit in initial:
-        if not _open_enumeration(hit):
+        overview = _enumeration_overview(question, hit)
+        if not _open_enumeration(hit) or not (conditions or overview):
             continue
         source = by_id.get(hit.chunk_id)
         if (source is None or source.language != "zh" or source.document_id != hit.document_id
@@ -190,11 +240,12 @@ def _continuation_candidates(initial: Sequence[SearchHit], chunks: Sequence[Chun
             if (not items or first is None or chunk.text[:first.start()].strip()
                     or items[0][0] != source_items[-1][0] + 1
                     or re.search(r"^\s*第[一二三四五六七八九十百0-9]+条", chunk.text, re.MULTILINE)
-                    or not _condition_matches(items, conditions)):
+                    or not (overview or _condition_matches(items, conditions))):
                 continue
             candidates.append(SupplementalEvidence(chunk, hit.chunk_id, (
                 "same_document_article", "consecutive_chunk", "next_physical_page",
-                "open_enumeration", "consecutive_item_numbers", "question_condition_overlap")))
+                "open_enumeration", "consecutive_item_numbers",
+                "enumeration_overview" if overview else "question_condition_overlap")))
     return candidates
 
 
@@ -216,7 +267,8 @@ async def complete_evidence(initial: Sequence[SearchHit], *, load_chunks_fn: Chu
         return []
     documents = list(dict.fromkeys([
         *(hit.document_id for hit, _, _ in _rules(initial)),
-        *(hit.document_id for hit in initial if _conditions(question) and _open_enumeration(hit)),
+        *(hit.document_id for hit in initial
+          if _open_enumeration(hit) and (_conditions(question) or _enumeration_overview(question, hit))),
     ]))
     if not documents:
         return []
