@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,19 +35,19 @@ def to_document_record(document: Document) -> DocumentRecord:
     uploaded_at = document.uploaded_at
     if uploaded_at is not None and uploaded_at.tzinfo is None:
         uploaded_at = uploaded_at.replace(tzinfo=timezone.utc)
-    return DocumentRecord(
-        document_id=document.document_id,
-        filename=document.filename,
-        status=DocumentStatus(document.status),
-        error_message=document.error_message,
-        page_count=document.page_count,
-        uploaded_at=uploaded_at,
+    return DocumentRecord.model_validate({
+        "document_id": document.document_id,
+        "filename": document.filename,
+        "status": DocumentStatus(document.status),
+        "error_message": document.error_message,
+        "page_count": document.page_count,
+        "uploaded_at": uploaded_at,
         # Issue #45：统一返回四项条件，供 POST、GET 和 get_documents(ids) 使用。
-        country=document.country,
-        direction=document.direction,
-        effective_date=document.effective_date,
-        applicable_persons=document.applicable_persons,
-    )
+        "country": document.country,
+        "direction": document.direction,
+        "effective_date": document.effective_date,
+        "applicable_persons": document.applicable_persons,
+    })
 
 
 async def create_processing_document(
