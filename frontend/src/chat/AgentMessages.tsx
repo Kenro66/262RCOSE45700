@@ -4,20 +4,24 @@ import { conflictGroups, validConditions, type AgentResponse, type Clarification
 import { previewMessages } from './messages'
 import './agent-messages.css'
 
-export function ClarificationForm({ clarification, resolved, busy, values = {}, onChange, onSubmit }: {
+export function ClarificationForm({ clarification, resolved, busy, values = {}, onChange, onSubmit, onCancel }: {
   clarification: Clarification; resolved?: boolean; busy: boolean
   values?: Record<string, string>
   onChange: (field: string, value: string) => void
+  onCancel?: () => Promise<boolean>
   onSubmit: (conditions: Record<string, string>, signal: AbortSignal) => Promise<void>
 }) {
   const { locale } = useI18n()
   const m = previewMessages[locale]
   const [stage, setStage] = useState<'pending' | 'sending' | 'error' | 'cancelled'>('pending')
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState(false)
+  const cancelling = useRef(false)
   const controller = useRef<AbortController | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (controller.current || busy || resolved || !validConditions(clarification.questions, values)) return
+    if (controller.current || cancelling.current || cancelError || busy || resolved || !validConditions(clarification.questions, values)) return
     const active = new AbortController()
     controller.current = active; setStage('sending')
     try {
@@ -27,18 +31,40 @@ export function ClarificationForm({ clarification, resolved, busy, values = {}, 
       if (!active.signal.aborted) setStage('error')
     } finally { if (controller.current === active) controller.current = null }
   }
+  async function cancel() {
+    if (cancelling.current) return
+    const active = controller.current
+    if (!active && !onCancel) return
+    cancelling.current = true
+    setIsCancelling(true)
+    setCancelError(false)
+    try {
+      if (!onCancel || await onCancel()) {
+        active?.abort()
+        setStage('cancelled')
+      } else {
+        setCancelError(true)
+      }
+    } catch {
+      setCancelError(true)
+    } finally {
+      cancelling.current = false
+      setIsCancelling(false)
+    }
+  }
   return <section className="agent-followup" aria-label={m.need}>
     <p className="agent-hint">{m.hint}</p>
     <form onSubmit={submit}>
-      <fieldset disabled={busy || resolved}>
+      <fieldset disabled={busy || isCancelling || cancelError || resolved}>
         {clarification.questions.map(question => <label className="agent-field" key={question.field}>{question.question}
           {question.type === 'select' ? <select required value={values[question.field] ?? ''} onChange={event => onChange(question.field, event.target.value)}>
             <option value="" disabled>{m.choose}</option>{question.options.map(value => <option key={value} value={value}>{value === 'CN' ? m.cn : value === 'KR' ? m.kr : value}</option>)}
           </select> : <input required maxLength={500} placeholder={m.placeholder} value={values[question.field] ?? ''} onChange={event => onChange(question.field, event.target.value)}/>}</label>)}
       </fieldset>
-      <p className="agent-hint" role="status" aria-live="polite">{resolved ? `✓ ${m.submitted}` : stage === 'sending' ? m.sending : stage === 'cancelled' ? m.cancelled : ''}</p>
+      <p className="agent-hint" role="status" aria-live="polite">{resolved ? `✓ ${m.submitted}` : isCancelling ? (locale === 'ko-KR' ? '취소 중' : '正在取消') : stage === 'sending' ? m.sending : stage === 'cancelled' ? m.cancelled : ''}</p>
+      {cancelError && !resolved && <p role="alert" className="agent-error">{locale === 'ko-KR' ? '취소를 확인하지 못했습니다.' : '未能确认取消。'}</p>}
       {stage === 'error' && !resolved && <p role="alert" className="agent-error">{m.failed}</p>}
-      {!resolved && <div className="agent-actions"><button className="button button-primary" type="submit" disabled={busy || !validConditions(clarification.questions, values)}>{stage === 'error' ? m.retry : m.submit}</button>{stage === 'sending' && <button className="button button-ghost" type="button" onClick={() => { controller.current?.abort(); controller.current = null; setStage('cancelled') }}>{m.cancel}</button>}</div>}
+      {!resolved && <div className="agent-actions"><button className="button button-primary" type="submit" disabled={busy || isCancelling || cancelError || !validConditions(clarification.questions, values)}>{stage === 'error' ? m.retry : m.submit}</button>{(stage === 'sending' || cancelError) && <button className="button button-ghost" type="button" disabled={isCancelling} onClick={() => void cancel()}>{m.cancel}</button>}</div>}
     </form>
   </section>
 }

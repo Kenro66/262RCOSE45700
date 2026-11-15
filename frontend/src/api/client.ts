@@ -22,9 +22,8 @@ export async function apiRequest<T>(
   }
   const response = await fetch(`${API_BASE_URL}${path}`, options)
 
-  const data: unknown = response.status === 204
-    ? null
-    : await response.json()
+  const body = await response.text()
+  const data: unknown = body ? JSON.parse(body) : null
 
   if (!response.ok) {
     throw new ApiError(response.status, data)
@@ -152,3 +151,32 @@ export async function sendChatMessage(payload: ChatRequest, signal?: AbortSignal
     body: JSON.stringify(payload),
   })
 }
+
+export type ChatSessionSummary = { session_id: string; title?: string; updated_at?: string }
+export type ChatExecution = { status: string; retryable?: boolean; result?: ApiChatResponse | null }
+export type ChatSessionDetail = ChatSessionSummary & {
+  questions: {
+    question_id: string
+    message: string
+    clarification?: AgentResponse['clarification']
+    conditions?: Record<string, string>
+    result?: ApiChatResponse | null
+  }[]
+}
+
+function sessionPath(sessionId: string) {
+  return `/chat/sessions/${encodeURIComponent(sessionId)}`
+}
+
+function questionPath(sessionId: string, questionId: string) {
+  return `${sessionPath(sessionId)}/questions/${encodeURIComponent(questionId)}`
+}
+
+export const getChatSessions = () => apiRequest<ChatSessionSummary[]>('/chat/sessions')
+export const getChatSession = (sessionId: string) => apiRequest<ChatSessionDetail>(sessionPath(sessionId))
+export const getChatExecution = (sessionId: string, questionId: string) =>
+  apiRequest<ChatExecution>(`${questionPath(sessionId, questionId)}/execution`)
+export const cancelChatExecution = (sessionId: string, questionId: string) =>
+  apiRequest<ChatExecution>(`${questionPath(sessionId, questionId)}/cancel`, { method: 'POST' })
+export const deleteChatSession = (sessionId: string) =>
+  apiRequest<void>(sessionPath(sessionId), { method: 'DELETE' })

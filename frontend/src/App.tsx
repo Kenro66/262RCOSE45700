@@ -12,6 +12,7 @@ import {
   deleteDocument,
   sendChatMessage,
   getApiErrorData,
+  getChatSessions, getChatSession, getChatExecution, cancelChatExecution, deleteChatSession,
 } from './api/client'
 
 type Page = 'documents' | 'chat'
@@ -41,6 +42,7 @@ type Message = {
   question_id?: string
   clarification?: AgentResponse['clarification']
   followupResolved?: boolean
+  executionLocked?: boolean
   followupValues?: Record<string, string>
 }
 
@@ -51,6 +53,7 @@ type Conversation = {
   updatedAt: string
   messages: Message[]
   isUntitled?: boolean
+  persisted?: boolean
 }
 
 type C1Document = {
@@ -184,10 +187,12 @@ function Sidebar({
   selectedConversationId: number | null
   onSelectConversation: (id: number) => void
   onNewConversation: () => void
-  onDeleteConversation: (id: number) => void
+  onDeleteConversation: (id: number) => Promise<void>
 }) {
   const { t } = useI18n()
   const [deletingConversation, setDeletingConversation] = useState<Conversation | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState(false)
   const counts = {
     Ready: documents.filter((d) => d.status === 'Ready').length,
     Processing: documents.filter((d) => d.status === 'Processing').length,
@@ -217,7 +222,7 @@ function Sidebar({
               >
                 <Icon name="chat" size={15}/>
                 <div className="history-copy"><strong>{conversation.isUntitled ? t('history.untitled') : conversation.title}</strong></div>
-                <Button variant="icon" className="history-delete" aria-label={t('history.deleteAria', { title: conversation.isUntitled ? t('history.untitled') : conversation.title })} onClick={(event) => { event.stopPropagation(); setDeletingConversation(conversation) }}><Icon name="trash" size={14}/></Button>
+                <Button variant="icon" className="history-delete" aria-label={t('history.deleteAria', { title: conversation.isUntitled ? t('history.untitled') : conversation.title })} onClick={(event) => { event.stopPropagation(); setDeleteError(false); setDeletingConversation(conversation) }}><Icon name="trash" size={14}/></Button>
               </div>
             ))}
             {conversations.length === 0 && <div className="history-empty">{t('history.empty')}</div>}
@@ -240,12 +245,27 @@ function Sidebar({
         <div className="version">Policy AI · v1.0</div>
       </div>
       {deletingConversation && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeletingConversation(null)}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => { if (!deleteBusy) setDeletingConversation(null) }}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-conversation-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-icon"><Icon name="trash" size={22}/></div>
             <h2 id="delete-conversation-title">{t('conversation.deleteTitle')}</h2>
             <p>{t('conversation.deleteBody', { title: deletingConversation.isUntitled ? t('history.untitled') : deletingConversation.title })}</p>
-            <div className="modal-actions"><Button onClick={() => setDeletingConversation(null)}>{t('common.cancel')}</Button><Button variant="danger" onClick={() => { onDeleteConversation(deletingConversation.id); setDeletingConversation(null) }}>{t('common.confirmDelete')}</Button></div>
+            {deleteError && <p role="alert">{t('exception.system.body')}</p>}
+            <div className="modal-actions">
+              <Button disabled={deleteBusy} onClick={() => setDeletingConversation(null)}>{t('common.cancel')}</Button>
+              <Button variant="danger" disabled={deleteBusy} onClick={async () => {
+                setDeleteBusy(true)
+                setDeleteError(false)
+                try {
+                  await onDeleteConversation(deletingConversation.id)
+                  setDeletingConversation(null)
+                } catch {
+                  setDeleteError(true)
+                } finally {
+                  setDeleteBusy(false)
+                }
+              }}>{t('common.confirmDelete')}</Button>
+            </div>
           </div>
         </div>
       )}
@@ -644,12 +664,14 @@ function CitationPanel({
 
 function ChatPage({
   conversation,
+  visible,
   onNewConversation,
   onSetMessages,
   readyDocumentCount,
   onOpenDocuments,
 }: {
   conversation: Conversation | null
+  visible: boolean
   onNewConversation: () => void
   onSetMessages: (conversationId: number, update: Message[] | ((messages: Message[]) => Message[])) => void
   readyDocumentCount: number
@@ -658,6 +680,10 @@ function ChatPage({
   const { t, locale } = useI18n()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [restoreError, setRestoreError] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const requestVersion = useRef(0)
+  const cancellation = useRef<Promise<boolean> | null>(null)
   const activeChatRequest = useRef<AbortController | null>(null)
   useEffect(() => () => { activeChatRequest.current?.abort() }, [])
   const [selectedCitation, setSelectedCitation] = useState(1)
@@ -700,13 +726,92 @@ function ChatPage({
     },
   }
 
-  useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [conversation?.id, messages.length, loading])
+  useEffect(() => {
+    if (visible) messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [visible, messages.length, loading])
+
+  const sessionId = conversation?.session_id
+  const persisted = conversation?.persisted
+  const conversationId = conversation?.id
+  useEffect(() => {
+    if (!visible || !persisted || !sessionId || conversationId === undefined || mockChatEnabled) return
+    let stopped = false
+    let timer: number | undefined
+    const restore = async (initial: boolean) => {
+      if (activeChatRequest.current) return
+      const version = requestVersion.current
+      if (initial) setRestoring(true)
+      try {
+        const detail = await getChatSession(sessionId)
+        const rows = await Promise.all(detail.questions.map(async (question, index): Promise<Message[]> => {
+          const execution = await getChatExecution(sessionId, question.question_id)
+          const pending = ['QUEUED', 'PENDING', 'RUNNING', 'CANCELLING'].includes(execution.status)
+          if (pending && !stopped && timer === undefined) {
+            timer = window.setTimeout(() => { timer = undefined; void restore(false) }, 1000)
+          }
+          const result = execution.result ?? question.result
+          const response = result && convertC5ChatResponse(result)
+          return [
+            { id: -(index * 2 + 1), role: 'user', body: question.message },
+            { id: -(index * 2 + 2), role: 'assistant', request: question.message,
+              body: response?.answer ?? response?.message ?? '',
+              apiResponse: result ?? undefined, question_id: question.question_id,
+              citations: response?.citations, citationDetails: response?.citationDetails,
+              clarification: response?.clarification ?? question.clarification,
+              responseStatus: response?.status ?? (question.clarification ? 'NEEDS_CLARIFICATION' : undefined),
+              executionLocked: pending || (execution.status === 'CANCELLED' && execution.retryable !== true),
+              followupValues: question.conditions },
+          ]
+        }))
+        if (!stopped && !activeChatRequest.current && requestVersion.current === version) {
+          const restored = rows.flat()
+          onSetMessages(conversationId, current => {
+            if (restored.length === 0 && current.length > 0) return current
+            return restored.map(message => {
+              if (!message.question_id || message.executionLocked || message.followupValues) return message
+              const existing = current.find(item => item.question_id === message.question_id && item.clarification)
+              return existing ? { ...message, followupValues: existing.followupValues } : message
+            })
+          })
+          setRestoreError(false)
+        }
+      } catch {
+        if (!stopped) setRestoreError(true)
+      } finally {
+        if (!stopped && initial) setRestoring(false)
+      }
+    }
+    void restore(true)
+    return () => { stopped = true; window.clearTimeout(timer); setRestoring(false) }
+  }, [visible, persisted, sessionId, conversationId])
+
+  function cancelFollowup(questionId: string) {
+    const controller = activeChatRequest.current
+    if (!sessionId) return Promise.resolve(false)
+    const confirm = async () => {
+      let execution = await cancelChatExecution(sessionId, questionId)
+      while (execution.status === 'CANCELLING' && !controller?.signal.aborted) {
+        await new Promise(resolve => window.setTimeout(resolve, 500))
+        if (controller?.signal.aborted) return false
+        execution = await getChatExecution(sessionId, questionId)
+      }
+      if (execution.status !== 'CANCELLED' || execution.retryable !== true) return false
+      controller?.abort()
+      return true
+    }
+    const pending = confirm().finally(() => {
+      if (cancellation.current === pending) cancellation.current = null
+    })
+    cancellation.current = pending
+    return pending
+  }
 
   const requestResponse = async (
     conversationId: number, question: string,
     followup?: FollowupRequest, pendingId?: number, signal?: AbortSignal,
   ) => {
     if (activeChatRequest.current) throw new Error('REQUEST_IN_PROGRESS')
+    requestVersion.current += 1
     const controller = new AbortController()
     const abort = () => controller.abort()
     signal?.addEventListener('abort', abort, { once: true })
@@ -715,6 +820,7 @@ function ChatPage({
     setLoading(true); setCitationMessageId(null); setSelectedCitation(1)
     try {
       const result = await sendChatMessage(followup ?? { message: question, session_id: conversation!.session_id }, controller.signal)
+      await cancellation.current?.catch(() => false)
       if (controller.signal.aborted) return
       const response = convertC5ChatResponse(result)
       if (pendingId && response.status === 'SYSTEM_ERROR') throw new Error('FOLLOWUP_FAILED')
@@ -726,6 +832,7 @@ function ChatPage({
           request: question, apiResponse: result, question_id: response.question_id, clarification: response.clarification },
       ])
     } catch (error) {
+      await cancellation.current?.catch(() => false)
       if (controller.signal.aborted) return
       if (pendingId) throw error // Form owns errors so selections and IDs survive retry.
       onSetMessages(conversationId, current => [...current, {
@@ -740,7 +847,7 @@ function ChatPage({
 
   const submitQuestion = (question: string) => {
     const trimmed = question.trim()
-    if (!trimmed || loading || activeChatRequest.current || !conversation) return
+    if (!trimmed || loading || restoring || activeChatRequest.current || !conversation) return
     const conversationId = conversation.id
     onSetMessages(conversationId, (current) => [...current, { id: Date.now(), role: 'user', body: trimmed }])
     setInput('')
@@ -806,8 +913,9 @@ const sendMessage = () => submitQuestion(input)
                         ? (message.body || renderedState?.body || '').replace(/\[E\d+\]/gi, '').trim()
                         : message.body}</div>
                       {message.responseStatus === 'NEEDS_CLARIFICATION' && message.clarification && <ClarificationForm
-                        clarification={message.clarification} resolved={message.followupResolved} busy={loading}
+                        clarification={message.clarification} resolved={message.followupResolved} busy={loading || restoring || !!message.executionLocked}
                         values={message.followupValues}
+                        onCancel={mockChatEnabled ? undefined : () => cancelFollowup(message.question_id!)}
                         onChange={(field, value) => onSetMessages(conversation!.id, current => current.map(item =>
                           item.id === message.id ? { ...item, followupValues: { ...item.followupValues, [field]: value } } : item
                         ))}
@@ -827,6 +935,7 @@ const sendMessage = () => submitQuestion(input)
                 </div>
               )
             })}
+            {restoreError && <p role="alert">{t('exception.system.body')}</p>}
             {loading && <div className="message-row assistant"><div className="ai-avatar"><Icon name="spark" size={17}/></div><div className="message-wrap"><div className="message-author">Policy AI <span>{t('chat.searching')}</span></div><div className="typing"><i/><i/><i/><span>{t('chat.searchingBody')}</span></div></div></div>}
             <div ref={messagesEnd}/>
           </div>
@@ -900,8 +1009,23 @@ useEffect(() => {
 }, [])
   const [conversations, setConversations] = useState<Conversation[]>(() => [{ id: 1, session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }])
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(1)
+  const [sessionListError, setSessionListError] = useState(false)
+  useEffect(() => {
+    if (mockChatEnabled) return
+    let stopped = false
+    getChatSessions().then(sessions => {
+      if (stopped || !sessions.length) return
+      const restored = sessions.map((session, index): Conversation => ({
+        id: -(index + 1), session_id: session.session_id, title: session.title ?? '',
+        updatedAt: session.updated_at ?? '', messages: [], persisted: true, isUntitled: !session.title,
+      }))
+      setConversations(current => [...current, ...restored])
+      setSelectedConversationId(current => current === 1 ? restored[0].id : current)
+    }).catch(() => { if (!stopped) setSessionListError(true) })
+    return () => { stopped = true }
+  }, [])
   const selected = useMemo(() => documents.find((document) => document.id === selectedId) ?? null, [documents, selectedId])
-  const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null, [conversations, selectedConversationId])
+  const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? conversations[0] ?? null, [conversations, selectedConversationId])
 
   const newConversation = () => {
     const conversation: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: t('common.justNow'), messages: [], isUntitled: true }
@@ -916,20 +1040,23 @@ useEffect(() => {
       const messages = typeof update === 'function' ? update(conversation.messages) : update
       const firstUserMessage = messages.find((message) => message.role === 'user')?.body
       const title = firstUserMessage ? `${firstUserMessage.slice(0, 18)}${firstUserMessage.length > 18 ? '…' : ''}` : ''
-      return { ...conversation, messages, title, updatedAt: t('common.justNow'), isUntitled: !firstUserMessage }
+      return { ...conversation, messages, title, updatedAt: t('common.justNow'), isUntitled: !firstUserMessage,
+        persisted: conversation.persisted || messages.some(message => !!message.question_id) }
     }))
   }
 
-  const deleteConversation = (conversationId: number) => {
-    const remaining = conversations.filter((conversation) => conversation.id !== conversationId)
-    if (remaining.length === 0) {
-      const emptyConversation: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }
-      setConversations([emptyConversation])
-      setSelectedConversationId(emptyConversation.id)
-      return
+  const deleteConversation = async (conversationId: number) => {
+    const target = conversations.find(conversation => conversation.id === conversationId)
+    if (!target) return
+    if (!mockChatEnabled && (target.persisted || target.messages.length)) {
+      await deleteChatSession(target.session_id)
     }
-    setConversations(remaining)
-    if (selectedConversationId === conversationId) setSelectedConversationId(remaining[0].id)
+    const replacement: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }
+    setConversations(current => {
+      const remaining = current.filter(conversation => conversation.id !== conversationId)
+      return remaining.length ? remaining : [replacement]
+    })
+    setSelectedConversationId(current => current === conversationId ? null : current)
   }
 
 
@@ -940,13 +1067,14 @@ useEffect(() => {
         onNavigate={setPage}
         documents={documents}
         conversations={conversations}
-        selectedConversationId={selectedConversationId}
+        selectedConversationId={selectedConversation?.id ?? null}
         onSelectConversation={setSelectedConversationId}
         onNewConversation={newConversation}
         onDeleteConversation={deleteConversation}
       />
 
-      {page === 'documents' ? (
+      {page === 'chat' && sessionListError && <p role="alert">{t('exception.system.body')}</p>}
+      {page === 'documents' && (
         <DocumentsPage
           documentsError={documentsError}
           documents={documents}
@@ -954,18 +1082,22 @@ useEffect(() => {
           selected={selected}
           setSelected={(document) => setSelectedId(document?.id ?? null)}
         />
-      ) : (
-        <ChatPage
-          key={selectedConversation?.id ?? 'empty'}
-          conversation={selectedConversation}
-          onNewConversation={newConversation}
-          onSetMessages={setConversationMessages}
-          readyDocumentCount={
-            documents.filter((document) => document.status === 'Ready').length
-          }
-          onOpenDocuments={() => setPage('documents')}
-        />
       )}
+      {conversations.map((conversation) => {
+        const visible = page === 'chat' && conversation.id === selectedConversation?.id
+        return (
+          <div key={conversation.id} style={{ display: visible ? 'contents' : 'none' }}>
+            <ChatPage
+              conversation={conversation}
+              visible={visible}
+              onNewConversation={newConversation}
+              onSetMessages={setConversationMessages}
+              readyDocumentCount={documents.filter((document) => document.status === 'Ready').length}
+              onOpenDocuments={() => setPage('documents')}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
