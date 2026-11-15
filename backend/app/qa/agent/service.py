@@ -2,11 +2,12 @@
 
 import asyncio
 import json
+from typing import cast
 from uuid import uuid4
 
 from langgraph.errors import NodeCancelledError
 
-from ...contracts import ChatStatus, DocumentStatus
+from ...contracts import ChatStatus, Citation, DocumentStatus
 from ..citation import Evidence, resolve_citations
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import detect_language
@@ -16,11 +17,12 @@ from .state import (AgentChatResponse, AgentResult, AgentState, CachedEvidence,
                     GraphState, normalize_agent_state)
 
 
-def snapshot(state: GraphState) -> AgentState:
+def snapshot(state: GraphState, cached_evidence=None) -> AgentState:
+    evidence = state["evidence"] if cached_evidence is None else cached_evidence
     return AgentState(
         retrieval_count=state["retrieval_count"], clarification_count=state["clarification_count"],
-        evidence_ids=[e.evidence_id for e in state["evidence"]],
-        evidence=[CachedEvidence(evidence_id=e.evidence_id, hit=e.hit) for e in state["evidence"]],
+        evidence_ids=[e.evidence_id for e in evidence],
+        evidence=[CachedEvidence(evidence_id=e.evidence_id, hit=e.hit) for e in evidence],
         question=state["question"], session_id=state["session_id"], question_id=state["question_id"],
         conditions=state["conditions"],
         retrieval_queries=state.get("seen_queries",[]),
@@ -32,6 +34,7 @@ async def agent_answer(
     question_id: str | None = None, agent_state: AgentState | dict | None = None,
     retrieve_fn: Retrieval | None = None, get_documents_fn: DocumentLookup | None = None,
     generate_fn: Generator | None = None, complete_evidence_fn: Completion | None = None,
+    on_progress=None, preserve_evidence_ids: bool = False,
 ) -> AgentResult:
     """Execute with injected mocks/services; no implicit external dependencies.
 
@@ -67,10 +70,17 @@ async def agent_answer(
         documents={}, sufficient=False, evidence_check_result={}, missing_conditions=[], status=None, answer=None,
         clarification=None, conflict=None, trace=[],
     )
-    nodes = Nodes(Dependencies(retrieve_fn, get_documents_fn, generate_fn, complete_evidence_fn))
+    async def observe(state):
+        if on_progress is not None:
+            await on_progress(snapshot(state, nodes.cached_evidence))
+
+    nodes = Nodes(Dependencies(cast(Retrieval, retrieve_fn), cast(DocumentLookup, get_documents_fn),
+                              cast(Generator, generate_fn), complete_evidence_fn),
+                  cached_evidence=list(initial["evidence"]) if preserve_evidence_ids else None,
+                  on_progress=observe if on_progress is not None else None)
     try:
         final = await build_graph(nodes).ainvoke(initial, config={"recursion_limit": 40})
-        citations = []
+        citations: list[Citation] = []
         if final["status"] == ChatStatus.ANSWERED:
             _, citations = resolve_citations(final["answer"], final["evidence"], final["documents"])
         elif final["status"] == ChatStatus.CONFLICTING_EVIDENCE:
@@ -98,14 +108,14 @@ async def agent_answer(
                     if final["status"] == ChatStatus.INSUFFICIENT_EVIDENCE else None,
             question_id=final["question_id"], clarification=final["clarification"], conflict=final["conflict"],
         )
-        return AgentResult(response=response, state=snapshot(final), trace=final["trace"])
+        return AgentResult(response=response, state=snapshot(final, nodes.cached_evidence), trace=final["trace"])
     except NodeCancelledError as exc:
         # LangGraph wraps cancellation raised by a dependency inside a node.
         raise asyncio.CancelledError() from exc
     except Exception as exc:
         error = exc if isinstance(exc, AgentError) else AgentError(
             "Agent dependency or workflow failed", error_type=classify_error(exc))
-        error.state = snapshot(nodes.latest or initial)
+        error.state = snapshot(nodes.latest or initial, nodes.cached_evidence)
         error.trace = list((nodes.latest or initial)["trace"])
         if error is exc:
             raise

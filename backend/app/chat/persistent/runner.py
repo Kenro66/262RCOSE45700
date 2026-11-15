@@ -22,7 +22,7 @@ class ChatRunner:
         self.worker_id = uuid4().hex
         self.tasks = {}
 
-    def start(self, question_id):
+    def start(self, question_id, *, execution_key=None):
         previous = self.tasks.get(question_id)
         async def after_previous():
             if previous is not None:
@@ -33,7 +33,10 @@ class ChatRunner:
                         raise
                 except Exception:
                     pass
-            await self._supervise(question_id)
+            if execution_key is None:
+                await self._supervise(question_id)
+            else:
+                await self._supervise(question_id, execution_key=execution_key)
         task = asyncio.create_task(after_previous(), name="chat-" + question_id)
         self.tasks[question_id] = task
         task.add_done_callback(lambda done: self._forget(question_id, done))
@@ -42,7 +45,7 @@ class ChatRunner:
         if self.tasks.get(question_id) is task:
             self.tasks.pop(question_id, None)
         if not task.cancelled() and task.exception() is not None:
-            logger.error("聊天后台任务异常结束：%s", question_id, exc_info=task.exception())
+            logger.error("聊天后台任务异常结束：%s", question_id)
 
     async def _agent(self, data, checkpoint):
         saved = normalize_agent_state(data["state"])
@@ -68,6 +71,15 @@ class ChatRunner:
 
     async def _execute(self, question_id, progress, stop_event):
         data = await self.store.execution_input(question_id, self.worker_id)
+        if progress.get("execution_key") is not None and progress["execution_key"] != data.get("run_id"):
+            raise ChatProblem("STALE_EXECUTION", "本题执行已更新。")
+        progress["execution_key"] = data.get("run_id")
+        if self.executor is None and data.get("mode") is not None:
+            from .managed import execute_managed
+            await execute_managed(self, data, stop_event)
+            return
+        if self.executor is None and self.store.rag_settings is not None:
+            raise ChatProblem("INVALID_SAVED_STATE", "原问题模式无法确认。")
         data["stop_event"] = stop_event
         async def checkpoint(state, clarification=None):
             await self.store.checkpoint(question_id, self.worker_id, state, clarification)
@@ -88,18 +100,20 @@ class ChatRunner:
         progress["reliable"] = True
         await self.store.finish(question_id, self.worker_id, "SUCCEEDED", result.response.model_dump(mode="json"))
 
-    async def _watch_cancel(self, question_id):
+    async def _watch_cancel(self, question_id, *, execution_key=None):
         while True:
-            record = await self.store.get_execution(question_id)
+            record = (await self.store.get_execution(question_id) if execution_key is None
+                      else await self.store.get_execution(question_id, execution_key=execution_key))
             if record["cancel_requested"]:
                 return
             await asyncio.sleep(POLL_SECONDS)
 
-    async def _supervise(self, question_id):
-        progress = {"reliable": False}  # 默认不能假定运行中的最新预算已经返回。
+    async def _supervise(self, question_id, *, execution_key=None):
+        progress = {"reliable": False, "execution_key": execution_key}
         stop_event = asyncio.Event()
         operation = asyncio.create_task(self._execute(question_id, progress, stop_event))
-        cancellation = asyncio.create_task(self._watch_cancel(question_id))
+        cancellation = asyncio.create_task(self._watch_cancel(question_id) if execution_key is None
+                                           else self._watch_cancel(question_id, execution_key=execution_key))
         try:
             done, _ = await asyncio.wait({operation, cancellation}, return_when=asyncio.FIRST_COMPLETED)
             if operation in done:
@@ -115,24 +129,28 @@ class ChatRunner:
                 await operation
             if cast(asyncio.Task, asyncio.current_task()).cancelling():
                 raise
-            await self.store.finish(question_id, self.worker_id, "CANCELLED", error_code="CANCELLED", state_reliable=progress["reliable"])
+            await self.store.finish(question_id, self.worker_id, "CANCELLED", error_code="CANCELLED", state_reliable=progress["reliable"], execution_key=progress.get("execution_key"))
         except Exception as exc:
             operation.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await operation
             if isinstance(exc, ChatProblem) and exc.status == 404:
                 return
-            logger.exception("聊天执行失败：%s", question_id)
+            if progress.get("execution_key") is not None:
+                logger.error("聊天执行保存失败：%s", question_id)
+            else:
+                logger.exception("聊天执行失败：%s", question_id)
             response = AgentChatResponse(status=ChatStatus.SYSTEM_ERROR, question_id=(await self.store.get_execution(question_id))["question_id"], message="系统暂时无法处理请求，请稍后重试。" if progress["reliable"] else "本题执行状态无法安全恢复，请重新提问。")
-            await self.store.finish(question_id, self.worker_id, "FAILED", response.model_dump(mode="json"), "SYSTEM_ERROR", state_reliable=progress["reliable"])  # 状态不可信时禁止清零重跑。
+            await self.store.finish(question_id, self.worker_id, "FAILED", response.model_dump(mode="json"), "SYSTEM_ERROR", state_reliable=progress["reliable"], execution_key=progress.get("execution_key"))
         finally:
             cancellation.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await cancellation
 
-    async def wait(self, question_id, conditions=None):
+    async def wait(self, question_id, conditions=None, *, execution_key=None):
         while True:
-            record = await self.store.get_execution(question_id, conditions=conditions)
+            record = (await self.store.get_execution(question_id, conditions=conditions) if execution_key is None
+                      else await self.store.get_execution(question_id, conditions=conditions, execution_key=execution_key))
             if record["execution_status"] not in {"RUNNING", "CANCELLING"}:
                 return record
             await asyncio.sleep(POLL_SECONDS)

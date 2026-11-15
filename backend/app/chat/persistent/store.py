@@ -1,14 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+from types import SimpleNamespace
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.database import SessionFactory
 from app.qa.agent.state import AgentState, Clarification, normalize_agent_state
 from .errors import ChatProblem
-from .models import ChatQuestion, ChatSession, ChatSubmission  # 每个问题只保留一份当前执行记录。
+from .models import ChatQuestion, ChatRetrievalAttempt, ChatSession, ChatSubmission
 
 ACTIVE = {"RUNNING", "CANCELLING"}
+
+
+class ExecutionRecord(dict):
+    """Public mapping with a non-serialized, server-only execution identity."""
+    def __init__(self, values, run_id):
+        super().__init__(values)
+        self.run_id = run_id
 
 def now():
     return datetime.now(timezone.utc)
@@ -40,8 +48,9 @@ def restore_state(raw):
         raise ChatProblem("INVALID_SAVED_STATE", "问题状态无法安全恢复，请重新提问。") from exc
 
 class ChatStore:
-    def __init__(self, factory=SessionFactory):
+    def __init__(self, factory=SessionFactory, rag_settings=None):
         self.factory = factory
+        self.rag_settings = rag_settings
 
     async def _session(self, db, session_id):  # 先锁聊天，再更新问题，保持固定锁顺序。
         chat = await db.scalar(select(ChatSession).where(ChatSession.session_id == session_id).with_for_update())
@@ -51,14 +60,14 @@ class ChatStore:
 
     @staticmethod
     def execution_view(row):
-        return {
+        return ExecutionRecord({
             "session_id": row.session_id,
             "question_id": row.question_id,
             "execution_status": row.status,
             "response": row.response,
             "error_code": row.error_code,
             "retryable": row.status in {"FAILED", "CANCELLED"} and row.error_code != "INVALID_SAVED_STATE",
-        }
+        }, row.run_id)
 
     async def reserve(self, request, worker_id):
         session_id = request.session_id or new_id("s_")
@@ -94,16 +103,27 @@ class ChatStore:
                     validate_conditions(question.clarification, request.conditions)
                 elif request.conditions:
                     raise ChatProblem("UNEXPECTED_CONDITIONS", "本题尚未询问这些条件。", 422)
-                saved = restore_state(question.state)
+                saved = (SimpleNamespace(question=question.question, session_id=session_id,
+                                         question_id=question.question_id, conditions=question.state.get("conditions", {}))
+                         if question.mode == "single" else restore_state(question.state))
                 if (saved.question, saved.session_id, saved.question_id) != (question.question, session_id, question.question_id):
                     raise ChatProblem("INVALID_SAVED_STATE", "问题状态关联异常，请重新提问。")
             else:
-                saved = AgentState(question=request.message, session_id=session_id, question_id=new_id("q_"))
-                question = ChatQuestion(question_id=saved.question_id, session_id=session_id, question=request.message, state=saved.model_dump(mode="json"), status="NEW")
+                mode = self.rag_settings.mode if self.rag_settings is not None else None
+                values = dict(question=request.message, session_id=session_id, question_id=new_id("q_"))
+                saved = SimpleNamespace(**values, conditions={}) if mode == "single" else AgentState(**values)
+                document_ids = None
+                if mode == "agent":
+                    from app.storage.models import Document
+                    document_ids = list((await db.scalars(select(Document.document_id).where(Document.status == "READY"))).all())
+                question = ChatQuestion(question_id=saved.question_id, session_id=session_id, question=request.message,
+                    state={"conditions": {}} if mode == "single" else saved.model_dump(mode="json"), status="NEW",
+                    mode=mode, document_ids=document_ids, retrieval_used=0 if mode == "agent" else None)
                 db.add(question)
                 await db.flush()
             merged = {**saved.conditions, **(request.conditions or {})}
-            question.state = saved.model_copy(update={"conditions": merged}).model_dump(mode="json")  # 计数和证据不清零。
+            question.state = (saved.model_copy(update={"conditions": merged}).model_dump(mode="json")
+                              if question.mode != "single" else {"conditions": merged})
             if current is None:
                 current = ChatSubmission(question_id=question.question_id, session_id=session_id, worker_id=worker_id)
                 db.add(current)
@@ -113,12 +133,19 @@ class ChatStore:
             current.error_code = None
             current.cancel_requested = False
             current.worker_id = worker_id
+            if question.mode is not None:
+                current.run_id = new_id("run_")
+                current.fallback_started = False
+                current.stop_reason = None
+                current.inflight_call = False
+                current.deadline_at = (now() + timedelta(seconds=self.rag_settings.execution_timeout_seconds)
+                                       if question.mode == "agent" and self.rag_settings is not None else None)
             current.updated_at = question.updated_at = chat.updated_at = now()
             question.status = "RUNNING"
             await db.flush()
             return self.execution_view(current), True
 
-    async def get_execution(self, question_id, conditions=None, *, session_id=None):
+    async def get_execution(self, question_id, conditions=None, *, session_id=None, execution_key=None):
         async with self.factory() as db:
             row = await db.get(ChatSubmission, question_id)
             if row is None:
@@ -127,6 +154,8 @@ class ChatStore:
                 raise ChatProblem("QUESTION_NOT_FOUND", "这个聊天中找不到本题。", 404)
             await self._session(db, row.session_id)
             await db.refresh(row)
+            if execution_key is not None and row.run_id != execution_key:
+                raise ChatProblem("QUESTION_CHANGED", "本题执行已更新，请读取当前问题状态。")
             if conditions is not None and row.conditions != conditions:
                 raise ChatProblem("QUESTION_CHANGED", "本题条件已更新，请读取当前问题状态。")
             result = self.execution_view(row)
@@ -143,9 +172,10 @@ class ChatStore:
             if row.worker_id != worker_id or row.status not in ACTIVE:
                 raise ChatProblem("QUESTION_NOT_ACTIVE", "本题已结束或不属于当前执行进程。")
             question = await db.get(ChatQuestion, question_id)
-            return {"question": question.question, "session_id": row.session_id, "question_id": question_id, "conditions": row.conditions, "state": question.state}
+            return {"question": question.question, "session_id": row.session_id, "question_id": question_id, "conditions": row.conditions, "state": question.state,
+                    "mode": question.mode, "run_id": row.run_id, "deadline_at": row.deadline_at, "document_ids": question.document_ids}
 
-    async def checkpoint(self, question_id, worker_id, state, clarification=None):
+    async def checkpoint(self, question_id, worker_id, state, clarification=None, *, execution_key=None):
         state = restore_state(state.model_dump(mode="json"))
         async with self.factory() as db, db.begin():
             row = await db.get(ChatSubmission, question_id)
@@ -156,17 +186,22 @@ class ChatStore:
             question = await db.get(ChatQuestion, question_id)
             if row.worker_id != worker_id or row.status not in ACTIVE or question.status not in ACTIVE:
                 raise ChatProblem("STALE_EXECUTION", "执行状态已变化。")
+            if row.run_id is not None and row.run_id != execution_key:
+                raise ChatProblem("STALE_EXECUTION", "执行状态已变化。")
+            if question.mode == "agent":
+                await self._validate_snapshot(db, question, row, state)
             old = restore_state(question.state)
             if state.retrieval_count < old.retrieval_count or state.clarification_count < old.clarification_count:
                 raise ChatProblem("INVALID_SAVED_STATE", "执行次数不能回退。")
             if (state.question, state.session_id, state.question_id) != (question.question, row.session_id, question_id):
                 raise ChatProblem("INVALID_SAVED_STATE", "状态不属于当前问题。")
             question.state = state.model_dump(mode="json")
+            question.state_reliable = True
             if clarification is not None:
                 question.clarification = clarification.model_dump(mode="json")
             question.updated_at = row.updated_at = now()
 
-    async def finish(self, question_id, worker_id, status, response=None, error_code=None, *, state_reliable=True):
+    async def finish(self, question_id, worker_id, status, response=None, error_code=None, *, state_reliable=True, execution_key=None):
         async with self.factory() as db, db.begin():
             row = await db.get(ChatSubmission, question_id)
             if row is None:
@@ -179,11 +214,21 @@ class ChatStore:
             question = await db.get(ChatQuestion, question_id)
             if row.worker_id != worker_id or row.status not in ACTIVE:
                 return
+            if row.run_id is not None and row.run_id != execution_key:
+                return
+            if question.mode == "agent" and row.deadline_at is not None and self._utc(row.deadline_at) <= now():
+                row.stop_reason = row.stop_reason or "TIMED_OUT"
+                status, error_code = "FAILED", "SYSTEM_ERROR"
+                response = dict(status="SYSTEM_ERROR", answer=None, citations=[], question_id=question_id,
+                                message="系统暂时无法处理请求，请稍后重试。")
+            if row.inflight_call:
+                raise ChatProblem("STALE_EXECUTION", "当前服务调用尚未结束。")
             if row.cancel_requested:
                 status, response, error_code = "CANCELLED", None, "CANCELLED"
             if not state_reliable:
                 error_code = "INVALID_SAVED_STATE"
             row.status, row.error_code = status, error_code
+            question.state_reliable = state_reliable
             row.response = {**response, "session_id": row.session_id, "execution_status": status} if response is not None else None
             if status == "SUCCEEDED":
                 question.status = "WAITING" if response["status"] == "NEEDS_CLARIFICATION" else "COMPLETED"
@@ -226,3 +271,84 @@ class ChatStore:
             chat.deleted, chat.title, chat.updated_at = True, "", now()
             await db.execute(delete(ChatSubmission).where(ChatSubmission.session_id == session_id))
             await db.execute(delete(ChatQuestion).where(ChatQuestion.session_id == session_id))
+
+    @staticmethod
+    def _utc(value):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+    async def _locked_run(self, db, question_id, run_id):
+        row = await db.get(ChatSubmission, question_id)
+        if row is None:
+            raise ChatProblem("QUESTION_NOT_FOUND", "找不到本题。", 404)
+        await self._session(db, row.session_id)
+        await db.refresh(row)
+        question = await db.get(ChatQuestion, question_id)
+        if row.run_id != run_id or row.status not in ACTIVE or question is None or question.status not in ACTIVE:
+            raise ChatProblem("STALE_EXECUTION", "执行状态已变化。")
+        return question, row
+
+    async def check_run(self, question_id, run_id, *, allow_stopped=False):
+        async with self.factory() as db, db.begin():
+            _, row = await self._locked_run(db, question_id, run_id)
+            reason = row.stop_reason
+            if row.cancel_requested:
+                reason = "CANCELLED"
+            elif row.deadline_at is not None and self._utc(row.deadline_at) <= now():
+                reason = reason or "TIMED_OUT"
+            if reason:
+                row.stop_reason = reason
+            return reason
+
+    async def mark_call(self, question_id, run_id, active):
+        async with self.factory() as db, db.begin():
+            _, row = await self._locked_run(db, question_id, run_id)
+            if active and (row.cancel_requested or row.stop_reason or (row.deadline_at is not None and self._utc(row.deadline_at) <= now())):
+                raise ChatProblem("STALE_EXECUTION", "本次执行已停止。")
+            row.inflight_call = active
+
+    async def reserve_retrieval(self, question_id, run_id, query, source):
+        if source not in {"AGENT", "FALLBACK"} or not isinstance(query, str) or not query.strip():
+            raise ValueError("Invalid retrieval attempt")
+        async with self.factory() as db, db.begin():
+            question, row = await self._locked_run(db, question_id, run_id)
+            if (question.mode != "agent" or row.cancel_requested or row.stop_reason
+                    or row.deadline_at is None or self._utc(row.deadline_at) <= now()
+                    or question.retrieval_used is None or question.retrieval_used >= 3):
+                raise ChatProblem("INVALID_SAVED_STATE", "无法安全开始新的检索。")
+            ordinal = question.retrieval_used + 1
+            question.retrieval_used = ordinal
+            question.state_reliable = False
+            db.add(ChatRetrievalAttempt(question_id=question_id, ordinal=ordinal, run_id=run_id, query=query, source=source))
+        return ordinal
+
+    async def finish_retrieval(self, question_id, run_id, ordinal, outcome):
+        async with self.factory() as db, db.begin():
+            await self._locked_run(db, question_id, run_id)
+            attempt = await db.get(ChatRetrievalAttempt, (question_id, ordinal))
+            if attempt is None or attempt.run_id != run_id:
+                raise ChatProblem("INVALID_SAVED_STATE", "检索记录无法确认。")
+            attempt.outcome = outcome
+
+    async def _validate_snapshot(self, db, question, row, state):
+        attempts = list((await db.scalars(select(ChatRetrievalAttempt).where(ChatRetrievalAttempt.question_id == question.question_id).order_by(ChatRetrievalAttempt.ordinal))).all())
+        if (question.retrieval_used is None or state.retrieval_count != question.retrieval_used
+                or [item.ordinal for item in attempts] != list(range(1, question.retrieval_used + 1))
+                or state.retrieval_queries != [item.query for item in attempts]
+                or any(item.outcome in {"RESERVED", "UNKNOWN"} for item in attempts)
+                or state.conditions != question.state.get("conditions", {})
+                or row.inflight_call):
+            raise ChatProblem("INVALID_SAVED_STATE", "状态与已消耗检索预算不一致。")
+        allowed = set(question.document_ids or [])
+        if any(item.hit.document_id not in allowed for item in state.evidence):
+            raise ChatProblem("INVALID_SAVED_STATE", "证据超出原问题范围。")
+
+    async def begin_fallback(self, question_id, run_id, state):
+        async with self.factory() as db, db.begin():
+            question, row = await self._locked_run(db, question_id, run_id)
+            await self._validate_snapshot(db, question, row, state)
+            if (not question.state_reliable or row.fallback_started or row.inflight_call
+                    or row.cancel_requested or row.stop_reason or question.retrieval_used >= 3
+                    or row.deadline_at is None or self._utc(row.deadline_at) <= now()):
+                return False
+            row.fallback_started = True
+            return True

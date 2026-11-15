@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ...adapters.config import settings
 from ...adapters.generation import generate_text
@@ -19,14 +20,16 @@ class RealRAG:
     """
 
     def __init__(self, original_question: str, *, conditions: dict | None = None,
-                 session_factory=None, embedder: Callable | None = None, top_k: int | None = None):
+                 session_factory=None, embedder: Callable | None = None, top_k: int | None = None,
+                 document_ids=None):
         self.original_question = original_question
         self.conditions = conditions or {}
         self.session_factory = session_factory
         self.embedder = embedder
         self.top_k = top_k
+        self.document_ids = None if document_ids is None else tuple(document_ids)
         self.current_query: str | None = None
-        self.engine = None
+        self.engine: AsyncEngine | None = None
 
     async def __aenter__(self):
         if self.session_factory is None:
@@ -54,14 +57,17 @@ class RealRAG:
         self.current_query = query
 
         async def search(vector, *, top_k):
-            return await search_similar(vector, top_k=top_k, session_factory=self.session_factory)
+            if self.document_ids is None:
+                return await search_similar(vector, top_k=top_k, session_factory=self.session_factory)
+            return await search_similar(vector, top_k=top_k, session_factory=self.session_factory, document_ids=self.document_ids)
 
         return await retrieve(query, search_similar=search, top_k=self.top_k, embedder=self.embedder)
 
     async def documents(self, ids):
         from ...storage.repo import get_documents
 
-        return await get_documents(ids, session_factory=self.session_factory)
+        allowed = ids if self.document_ids is None else [item for item in ids if item in self.document_ids]
+        return await get_documents(allowed, session_factory=self.session_factory)
 
     async def complete(self, hits):
         from ...storage.repo import get_ready_chunk_sources
@@ -70,7 +76,8 @@ class RealRAG:
             raise RuntimeError("Completion requires a preceding retrieval in this request")
 
         async def load(ids):
-            return await get_ready_chunk_sources(ids, session_factory=self.session_factory)
+            allowed = ids if self.document_ids is None else [item for item in ids if item in self.document_ids]
+            return await get_ready_chunk_sources(allowed, session_factory=self.session_factory)
 
         # Retain original applicability constraints even if a rewrite omits a term.
         context = (self.current_query + "\nOriginal question: " + self.original_question

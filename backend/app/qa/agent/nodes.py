@@ -10,6 +10,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from enum import Enum
+from collections.abc import Awaitable, Sequence
+from typing import cast
 
 from pydantic import BaseModel
 from langgraph.errors import NodeCancelledError
@@ -22,7 +24,7 @@ from ..evidence_completion import SupplementalEvidence
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import build_messages, detect_language
 from ..retriever import RetrievalError
-from .state import (AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
+from .state import (AgentState, AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
                     EvidenceDecision, GraphState, RewriteDecision)
 
 
@@ -45,8 +47,8 @@ class AgentError(RuntimeError):
         super().__init__(message)
         self.failed_node = failed_node
         self._error_type = AgentErrorType(error_type)
-        self.state = None
-        self.trace = None
+        self.state: AgentState | None = None
+        self.trace: list[str] | None = None
 
     @property
     def error_type(self) -> AgentErrorType:
@@ -80,6 +82,8 @@ async def _retrieval_dependency(fn, *args):
     except (asyncio.CancelledError, NodeCancelledError):
         raise
     except Exception as exc:
+        if isinstance(exc, AgentError) and getattr(exc, "execution_control", False):
+            raise
         raise AgentError("Shared retrieval dependency failed",
                          error_type=AgentErrorType.SHARED_RETRIEVAL_ERROR) from exc
 
@@ -156,9 +160,11 @@ class Dependencies:
 
 
 class Nodes:
-    def __init__(self, dependencies: Dependencies):
+    def __init__(self, dependencies: Dependencies, *, cached_evidence=None, on_progress=None):
         self.deps = dependencies
         self.latest: GraphState | None = None
+        self.cached_evidence = cached_evidence
+        self.on_progress = on_progress
 
     async def decide(self, task: str, state: GraphState, schema: type[BaseModel], *, feedback=None):
         data = {
@@ -226,9 +232,10 @@ class Nodes:
                     "number merely because it occurs elsewhere in a source. If the claim cannot be supported, return "
                     "insufficient_evidence=true. This is the only repair attempt.")
         fn = self.deps.generate
+        raw: str | Awaitable[str]
         try:
             if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None)):
-                raw = await fn(messages)
+                raw = await cast(Awaitable[str], fn(messages))
             else:
                 raw = await asyncio.to_thread(fn, messages)
                 if inspect.isawaitable(raw):
@@ -236,6 +243,8 @@ class Nodes:
         except (asyncio.CancelledError, NodeCancelledError):
             raise
         except Exception as exc:
+            if isinstance(exc, AgentError) and getattr(exc, "execution_control", False):
+                raise
             raise AgentError("Shared generation dependency failed",
                              error_type=AgentErrorType.SHARED_GENERATION_ERROR) from exc
         if not isinstance(raw, str):
@@ -276,16 +285,16 @@ class Nodes:
             return {"status": ChatStatus.INSUFFICIENT_EVIDENCE}
         if any(proof_text(q)==proof_text(state["current_query"]) for q in state.get("seen_queries",[])):
             return {"status":ChatStatus.INSUFFICIENT_EVIDENCE}
-        self.latest = {**state, "retrieval_count": state["retrieval_count"] + 1,
-                       "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]}
+        self.latest = cast(GraphState, {**state, "retrieval_count": state["retrieval_count"] + 1,
+                       "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]})
         hits = validate_hits(await _retrieval_dependency(self.deps.retrieve, state["current_query"]))
-        supplemental = ()
+        supplemental: Sequence[SupplementalEvidence] = ()
         if hits and self.deps.complete is not None:
             supplemental = await self.deps.complete(tuple(h.model_copy(deep=True) for h in hits))
             if (not isinstance(supplemental, (list, tuple)) or len(supplemental) > 1
                     or any(not isinstance(e, SupplementalEvidence) for e in supplemental)):
                 raise AgentError("Completion must return at most one SupplementalEvidence")
-        evidence = list(state["evidence"])
+        evidence = list(self.cached_evidence if self.cached_evidence is not None else state["evidence"])
         by_id = {e.hit.chunk_id: e.hit for e in evidence}
         for source in assemble_evidence(hits, supplemental):
             hit = source.hit
@@ -297,7 +306,7 @@ class Nodes:
                 continue
             evidence.append(Evidence(f"E{len(evidence) + 1}", hit))
             by_id[hit.chunk_id] = hit
-        return {"retrieval_count": self.latest["retrieval_count"], "evidence": evidence,
+        return {"retrieval_count": state["retrieval_count"] + 1, "evidence": evidence,
                 "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]}
 
     async def check_evidence(self, state):
@@ -311,11 +320,12 @@ class Nodes:
         usable = {c.evidence_id for c in citations}
         evidence = [e for e in state["evidence"] if e.evidence_id in usable]
         # Rebuild request-local IDs after filtering stale sources.
-        evidence = [Evidence(f"E{i}", e.hit) for i, e in enumerate(evidence, 1)]
+        if self.cached_evidence is None:
+            evidence = [Evidence(f"E{i}", e.hit) for i, e in enumerate(evidence, 1)]
         sufficient = False
         assessment = {}
         if evidence:
-            decision = await self.decide("check_evidence", {**state, "documents": documents, "evidence": evidence}, EvidenceDecision)
+            decision = await self.decide("check_evidence", cast(GraphState, {**state, "documents": documents, "evidence": evidence}), EvidenceDecision)
             sufficient = evidence_is_sufficient(decision, evidence, state["question"])
             assessment = {**decision.model_dump(), "accepted_sufficient": sufficient,
                           "trusted_support":trusted_support(decision,evidence)}
@@ -374,6 +384,27 @@ class Nodes:
         return {"conflict": conflict, "status": ChatStatus.CONFLICTING_EVIDENCE}
 
     async def generate_answer(self, state):
+        if self.cached_evidence is not None:
+            ids = list(dict.fromkeys(item.hit.document_id for item in state["evidence"]))
+            documents = await _retrieval_dependency(self.deps.documents, ids)
+            documents = {key: value.model_dump(mode="json") if isinstance(value, DocumentRecord) else value
+                         for key, value in documents.items()}
+            _, citations = resolve_citations("".join(f"[{item.evidence_id}]" for item in state["evidence"]), state["evidence"], documents)
+            usable = {item.evidence_id for item in citations}
+            evidence = [item for item in state["evidence"] if item.evidence_id in usable]
+            if not evidence:
+                return {"status": ChatStatus.INSUFFICIENT_EVIDENCE, "answer": None, "documents": documents, "evidence": []}
+            refreshed = {**state, "documents": documents, "evidence": evidence}
+            if len(evidence) != len(state["evidence"]):
+                audit = await self.check_evidence(refreshed)
+                refreshed.update(audit)
+                if not refreshed["sufficient"]:
+                    return {**audit, "status": ChatStatus.INSUFFICIENT_EVIDENCE, "answer": None}
+            result = await self._generate_answer(refreshed)
+            return {**result, "documents": refreshed["documents"], "evidence": refreshed["evidence"]}
+        return await self._generate_answer(state)
+
+    async def _generate_answer(self, state):
         feedback = None
         for attempt in range(2):
             try:
@@ -421,7 +452,20 @@ class Nodes:
             self.latest = state
             try:
                 update = await getattr(self, name)(state)
-                self.latest = {**state, **update}
+                latest = cast(GraphState, {**state, **update})
+                self.latest = latest
+                if self.cached_evidence is not None:
+                    known = {item.hit.chunk_id: item for item in self.cached_evidence}
+                    for item in latest["evidence"]:
+                        old = known.get(item.hit.chunk_id)
+                        if old is not None:
+                            if (old.hit.document_id, old.hit.page_number, old.hit.text) != (item.hit.document_id, item.hit.page_number, item.hit.text):
+                                raise ValueError("Stable source changed during execution")
+                        else:
+                            self.cached_evidence.append(Evidence(f"E{len(self.cached_evidence) + 1}", item.hit))
+                            known[item.hit.chunk_id] = self.cached_evidence[-1]
+                if self.on_progress is not None:
+                    await self.on_progress(latest)
                 return {**update, "trace": state["trace"]}
             except (asyncio.CancelledError, NodeCancelledError):
                 raise

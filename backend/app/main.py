@@ -42,6 +42,11 @@ def _db_host() -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        from app.chat.config import load_rag_settings
+        rag_settings = load_rag_settings()
+        store = getattr(app.state, "chat_store", None)
+        if store is not None:
+            store.rag_settings = rag_settings
         await init_db()
         yield
     finally:
@@ -65,6 +70,7 @@ def create_app(chunk_pages=None, embed_chunks=None, answer_fn=None, chat_executo
         app.include_router(build_chat_router(answer_fn), prefix="/api")
     else:
         store = ChatStore()
+        app.state.chat_store = store
         runner = ChatRunner(store, executor=chat_executor)
         app.state.chat_runner = runner
         app.include_router(build_persistent_chat_router(store, runner), prefix="/api")

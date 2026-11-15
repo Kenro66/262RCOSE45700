@@ -6,7 +6,7 @@ from app.qa.agent.nodes import AgentError
 
 
 class AgentStopped(AgentError):
-    pass
+    execution_control = True
 
 
 async def call_until_stopped(function, stop_event, *args, **kwargs):

@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,19 +35,19 @@ def to_document_record(document: Document) -> DocumentRecord:
     uploaded_at = document.uploaded_at
     if uploaded_at is not None and uploaded_at.tzinfo is None:
         uploaded_at = uploaded_at.replace(tzinfo=timezone.utc)
-    return DocumentRecord(
-        document_id=document.document_id,
-        filename=document.filename,
-        status=DocumentStatus(document.status),
-        error_message=document.error_message,
-        page_count=document.page_count,
-        uploaded_at=uploaded_at,
+    return DocumentRecord.model_validate({
+        "document_id": document.document_id,
+        "filename": document.filename,
+        "status": DocumentStatus(document.status),
+        "error_message": document.error_message,
+        "page_count": document.page_count,
+        "uploaded_at": uploaded_at,
         # Issue #45：统一返回四项条件，供 POST、GET 和 get_documents(ids) 使用。
-        country=document.country,
-        direction=document.direction,
-        effective_date=document.effective_date,
-        applicable_persons=document.applicable_persons,
-    )
+        "country": document.country,
+        "direction": document.direction,
+        "effective_date": document.effective_date,
+        "applicable_persons": document.applicable_persons,
+    })
 
 
 async def create_processing_document(
@@ -242,7 +242,7 @@ async def next_document_id(
         return f"DOC{number:03d}"
 
 
-def build_search_similar_stmt(query_vector: list[float], top_k: int):
+def build_search_similar_stmt(query_vector: list[float], top_k: int, *, document_ids=None):
     """构造向量检索语句（仅 Postgres/pgvector）。
 
     只查 READY 文件；score = 1 - 余弦距离，按 score 从高到低（距离升序）
@@ -250,7 +250,7 @@ def build_search_similar_stmt(query_vector: list[float], top_k: int):
     """
     distance = Chunk.embedding.cosine_distance(query_vector)
     score = (1 - distance).label("score")
-    return (
+    statement = (
         select(
             Chunk.chunk_id,
             Chunk.document_id,
@@ -266,15 +266,19 @@ def build_search_similar_stmt(query_vector: list[float], top_k: int):
         .order_by(distance.asc())
         .limit(top_k)
     )
+    if document_ids is not None:
+        statement = statement.where(Chunk.document_id.in_(document_ids))
+    return statement
 
 
 async def search_similar(
     query_vector: list[float],
     top_k: int,
     session_factory: SessionMaker = SessionFactory,
+    *, document_ids=None,
 ) -> list[SearchHit]:
     """按向量距离在 C2 里取最近的 top_k 个文本块，只查 READY 文件（Issue #11）。"""
-    statement = build_search_similar_stmt(query_vector, top_k)
+    statement = build_search_similar_stmt(query_vector, top_k, document_ids=document_ids)
     async with session_factory() as session:
         rows = (await session.execute(statement)).all()
         return [

@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from ..adapters.generation import generate_text
 from ..adapters.config import settings
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 async def _generate(function: Generator, messages: list[dict[str, str]]) -> str:
     if inspect.iscoroutinefunction(function) or inspect.iscoroutinefunction(getattr(function, "__call__", None)):
-        return await function(messages)
+        return await cast(Awaitable[str], function(messages))
     result = await asyncio.to_thread(function, messages)
     if inspect.isawaitable(result):
         return await result
@@ -52,7 +52,7 @@ def _insufficient(language: str) -> ChatResponse:
 
 async def answer(question: str, session_id: str | None = None, *, retrieve_fn: Retrieval | None = None,
                  get_documents_fn: DocumentLookup | None = None, generate_fn: Generator | None = None,
-                 complete_evidence_fn: Completion | None = None) -> ChatResponse:
+                 complete_evidence_fn: Completion | None = None, execution_context=None) -> ChatResponse:
     """Await backend retrieval/metadata; offload the existing synchronous generator."""
     language = detect_language(question)
     if session_id is not None and (not isinstance(session_id, str) or not session_id.strip()):
@@ -63,7 +63,7 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
     generator = generate_text if generate_fn is None else generate_fn
     if not callable(generator):
         raise AnswerError("generate_fn must be callable")
-    initial_hits = validate_hits(await retrieve_fn(question))
+    initial_hits = validate_hits(await cast(Retrieval, retrieve_fn)(question))
     supplemental: Sequence[SupplementalEvidence] = ()
     if (initial_hits and settings().get("EVIDENCE_COMPLETION_ENABLED", "false").strip().lower() == "true"
             and complete_evidence_fn is not None):
@@ -74,13 +74,17 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
             if any(not isinstance(item, SupplementalEvidence) for item in supplemental):
                 raise ValueError("Invalid supplemental source")
         except Exception:
+            if execution_context is not None:
+                await execution_context.before_generation()
             logger.warning("Evidence completion failed; retaining Initial retrieval", exc_info=True)
             supplemental = ()
     evidence = assemble_evidence(initial_hits, supplemental)
+    if execution_context is not None:
+        evidence = await execution_context.evidence(evidence)
     if not evidence:
         return _insufficient(language)
     document_ids = list(dict.fromkeys(item.hit.document_id for item in evidence))
-    documents = await get_documents_fn(document_ids)
+    documents = await cast(DocumentLookup, get_documents_fn)(document_ids)
     # Validate source metadata before sending any evidence to the model.
     markers = "".join(f"[{item.evidence_id}]" for item in evidence)
     _, sources = resolve_citations(markers, evidence, documents)
@@ -88,7 +92,11 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
     evidence = [item for item in evidence if item.evidence_id in usable]
     if not evidence:
         return _insufficient(language)
-    raw = await _generate(generator, build_messages(question, language, evidence))
+    messages = build_messages(question, language, evidence)
+    if execution_context is not None:
+        await execution_context.before_generation()
+        messages = execution_context.messages(messages)
+    raw = await _generate(generator, messages)
     if not isinstance(raw, str) or not raw.strip():
         raise AnswerError("Generation returned no text")
     try:
