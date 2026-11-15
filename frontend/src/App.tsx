@@ -745,11 +745,11 @@ function ChatPage({
         const detail = await getChatSession(sessionId)
         const rows = await Promise.all(detail.questions.map(async (question, index): Promise<Message[]> => {
           const execution = await getChatExecution(sessionId, question.question_id)
-          const pending = ['QUEUED', 'PENDING', 'RUNNING', 'CANCELLING'].includes(execution.status)
+          const pending = ['RUNNING', 'CANCELLING'].includes(execution.execution_status)
           if (pending && !stopped && timer === undefined) {
             timer = window.setTimeout(() => { timer = undefined; void restore(false) }, 1000)
           }
-          const result = execution.result ?? question.result
+          const result = execution.response
           const response = result && convertC5ChatResponse(result)
           return [
             { id: -(index * 2 + 1), role: 'user', body: question.message },
@@ -759,7 +759,7 @@ function ChatPage({
               citations: response?.citations, citationDetails: response?.citationDetails,
               clarification: response?.clarification ?? question.clarification,
               responseStatus: response?.status ?? (question.clarification ? 'NEEDS_CLARIFICATION' : undefined),
-              executionLocked: pending || (execution.status === 'CANCELLED' && execution.retryable !== true),
+              executionLocked: pending || (execution.execution_status === 'CANCELLED' && execution.retryable !== true),
               followupValues: question.conditions },
           ]
         }))
@@ -790,12 +790,12 @@ function ChatPage({
     if (!sessionId) return Promise.resolve(false)
     const confirm = async () => {
       let execution = await cancelChatExecution(sessionId, questionId)
-      while (execution.status === 'CANCELLING' && !controller?.signal.aborted) {
+      while (execution.execution_status === 'CANCELLING' && !controller?.signal.aborted) {
         await new Promise(resolve => window.setTimeout(resolve, 500))
         if (controller?.signal.aborted) return false
         execution = await getChatExecution(sessionId, questionId)
       }
-      if (execution.status !== 'CANCELLED' || execution.retryable !== true) return false
+      if (execution.execution_status !== 'CANCELLED' || execution.retryable !== true) return false
       controller?.abort()
       return true
     }

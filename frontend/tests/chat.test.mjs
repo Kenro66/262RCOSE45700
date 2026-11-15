@@ -128,3 +128,70 @@ test('mock boundary isolates chats and resumes with the original question', asyn
   assert.equal(answer.status, 'ANSWERED')
   assert.equal(answer.question_id, first.question_id)
 })
+
+
+test('HTTP session lifecycle consumes the persistent backend response format', async (t) => {
+  const { registerHooks } = await import('node:module')
+  const { readFileSync } = await import('node:fs')
+  const { default: ts } = await import('typescript')
+  const hook = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === '../chat/mock-mode' && context.parentURL?.endsWith('/api/client.ts')) {
+        return { url: 'data:text/javascript,export const mockChatEnabled = false', shortCircuit: true }
+      }
+      return nextResolve(specifier, context)
+    },
+    load(url, context, nextLoad) {
+      if (url !== new URL('../src/api/client.ts', import.meta.url).href) {
+        return nextLoad(url, context)
+      }
+      const source = ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+      }).outputText
+      return { format: 'module', source, shortCircuit: true }
+    },
+  })
+  let client
+  try {
+    client = await import('../src/api/client.ts')
+  } finally {
+    hook.deregister()
+  }
+
+  const requests = []
+  const session = { session_id: 's_1', title: 'Original chat' }
+  const answer = { status: 'ANSWERED', answer: 'Saved answer', citations: [], message: null }
+  t.mock.method(globalThis, 'fetch', async (path, options) => {
+    requests.push([path, options.method ?? 'GET', options.body])
+    switch (requests.length) {
+      case 1: return Response.json({ sessions: [session] })
+      case 2: return Response.json({ sessions: [] })
+      case 3: return Response.json({
+        execution_status: 'CANCELLING', retryable: false, response: null,
+      }, { status: 202 })
+      case 4: return Response.json({
+        execution_status: 'CANCELLED', retryable: true, response: null,
+      })
+      case 5: return Response.json({
+        execution_status: 'SUCCEEDED', retryable: false, response: answer,
+      })
+      default: throw new Error('Unexpected request')
+    }
+  })
+
+  assert.deepEqual(await client.getChatSessions(), [session])
+  assert.deepEqual(await client.getChatSessions(), [])
+  assert.equal((await client.cancelChatExecution('s_1', 'q_1')).execution_status, 'CANCELLING')
+  const cancelled = await client.getChatExecution('s_1', 'q_1')
+  assert.equal(cancelled.execution_status, 'CANCELLED')
+  assert.equal(cancelled.retryable, true)
+  const saved = await client.getChatExecution('s_1', 'q_2')
+  assert.equal(convertC5ChatResponse(saved.response).answer, 'Saved answer')
+  assert.deepEqual(requests, [
+    ['/api/chat/sessions', 'GET', undefined],
+    ['/api/chat/sessions', 'GET', undefined],
+    ['/api/chat/sessions/s_1/questions/q_1/cancel', 'POST', undefined],
+    ['/api/chat/sessions/s_1/questions/q_1/execution', 'GET', undefined],
+    ['/api/chat/sessions/s_1/questions/q_2/execution', 'GET', undefined],
+  ])
+})

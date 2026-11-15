@@ -153,14 +153,17 @@ export async function sendChatMessage(payload: ChatRequest, signal?: AbortSignal
 }
 
 export type ChatSessionSummary = { session_id: string; title?: string; updated_at?: string }
-export type ChatExecution = { status: string; retryable?: boolean; result?: ApiChatResponse | null }
+export type ChatExecution = {
+  execution_status: string
+  retryable: boolean
+  response: ApiChatResponse | null
+}
 export type ChatSessionDetail = ChatSessionSummary & {
   questions: {
     question_id: string
     message: string
     clarification?: AgentResponse['clarification']
     conditions?: Record<string, string>
-    result?: ApiChatResponse | null
   }[]
 }
 
@@ -172,7 +175,10 @@ function questionPath(sessionId: string, questionId: string) {
   return `${sessionPath(sessionId)}/questions/${encodeURIComponent(questionId)}`
 }
 
-export const getChatSessions = () => apiRequest<ChatSessionSummary[]>('/chat/sessions')
+export async function getChatSessions(): Promise<ChatSessionSummary[]> {
+  const { sessions } = await apiRequest<{ sessions: ChatSessionSummary[] }>('/chat/sessions')
+  return sessions
+}
 export const getChatSession = (sessionId: string) => apiRequest<ChatSessionDetail>(sessionPath(sessionId))
 export const getChatExecution = (sessionId: string, questionId: string) =>
   apiRequest<ChatExecution>(`${questionPath(sessionId, questionId)}/execution`)
