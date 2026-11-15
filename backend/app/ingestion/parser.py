@@ -12,7 +12,7 @@ from app.contracts import ParsedPage
 
 PARSER_VERSION = "pymupdf-1"
 logger = logging.getLogger(__name__)
-LANGUAGE_CODES = {
+LANGUAGE_CODES: dict[Language, Literal["ko", "zh", "en"]] = {
     Language.KOREAN: "ko",
     Language.CHINESE: "zh",
     Language.ENGLISH: "en",
