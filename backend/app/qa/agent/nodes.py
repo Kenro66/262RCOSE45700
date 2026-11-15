@@ -8,7 +8,9 @@ import inspect
 import json
 import re
 import unicodedata
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 from pydantic import BaseModel
 
@@ -18,8 +20,10 @@ from ..citation import (Evidence, assemble_evidence, has_cited_conclusions,
 from ..evidence_completion import SupplementalEvidence
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import build_messages, detect_language
-from .state import (AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
+from .state import (AgentState, AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
                     EvidenceDecision, GraphState, RewriteDecision)
+
+Decision = TypeVar("Decision", bound=BaseModel)
 
 
 class AgentError(RuntimeError):
@@ -29,8 +33,8 @@ class AgentError(RuntimeError):
     On workflow failure service attaches the latest budget/source snapshot.
     """
 
-    state = None
-    trace = None
+    state: AgentState | None = None
+    trace: list[str] | None = None
 
 
 def unique_fields(pairs):
@@ -108,7 +112,7 @@ class Nodes:
         self.deps = dependencies
         self.latest: GraphState | None = None
 
-    async def decide(self, task: str, state: GraphState, schema: type[BaseModel], *, feedback=None):
+    async def decide(self, task: str, state: GraphState, schema: type[Decision], *, feedback=None) -> Decision:
         data = {
             "task": task, "question": state["question"], "conditions": state["conditions"],
             "current_query": state["current_query"], "retrieval_count": state["retrieval_count"],
@@ -174,8 +178,12 @@ class Nodes:
                     "number merely because it occurs elsewhere in a source. If the claim cannot be supported, return "
                     "insufficient_evidence=true. This is the only repair attempt.")
         fn = self.deps.generate
+        raw: str | Awaitable[str]
         if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None)):
-            raw = await fn(messages)
+            pending = fn(messages)
+            if not inspect.isawaitable(pending):
+                raise TypeError("Asynchronous generator must return an awaitable")
+            raw = await pending
         else:
             raw = await asyncio.to_thread(fn, messages)
             if inspect.isawaitable(raw):
@@ -207,7 +215,7 @@ class Nodes:
                 "clarification": Clarification(questions=state["missing_conditions"]),
                 "status": ChatStatus.NEEDS_CLARIFICATION}
 
-    async def retrieve(self, state):
+    async def retrieve(self, state: GraphState):
         # Guard the side effect itself, as well as the conditional edge before it.
         if state["retrieval_count"] >= 3:
             return {"status": ChatStatus.INSUFFICIENT_EVIDENCE}
@@ -216,7 +224,7 @@ class Nodes:
         self.latest = {**state, "retrieval_count": state["retrieval_count"] + 1,
                        "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]}
         hits = validate_hits(await self.deps.retrieve(state["current_query"]))
-        supplemental = ()
+        supplemental: Sequence[SupplementalEvidence] = ()
         if hits and self.deps.complete is not None:
             supplemental = await self.deps.complete(tuple(h.model_copy(deep=True) for h in hits))
             if (not isinstance(supplemental, (list, tuple)) or len(supplemental) > 1
@@ -236,7 +244,7 @@ class Nodes:
         return {"retrieval_count": self.latest["retrieval_count"], "evidence": evidence,
                 "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]}
 
-    async def check_evidence(self, state):
+    async def check_evidence(self, state: GraphState):
         ids = list(dict.fromkeys(e.hit.document_id for e in state["evidence"]))
         documents = await self.deps.documents(ids) if ids else {}
         # Revalidate READY status and metadata on resume, rather than trusting cached metadata.
@@ -309,7 +317,7 @@ class Nodes:
         return {"conflict": conflict, "status": ChatStatus.CONFLICTING_EVIDENCE}
 
     async def generate_answer(self, state):
-        feedback = None
+        feedback: dict[str, list[str] | str] | None = None
         for attempt in range(2):
             try:
                 decision = await self.decide("generate_answer",state,AnswerDecision,feedback=feedback)
@@ -349,7 +357,7 @@ class Nodes:
         return {}
 
     def tracked(self, name):
-        async def run(state):
+        async def run(state: GraphState):
             state = {**state, "trace": [*state["trace"], name]}
             self.latest = state
             update = await getattr(self, name)(state)
