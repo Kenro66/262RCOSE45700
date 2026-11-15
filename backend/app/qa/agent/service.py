@@ -11,7 +11,7 @@ from ..citation import Evidence, resolve_citations
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import detect_language
 from .graph import build_graph
-from .nodes import AgentError, Dependencies, Nodes
+from .nodes import AgentError, AgentErrorType, Dependencies, Nodes, classify_error
 from .state import (AgentChatResponse, AgentResult, AgentState, CachedEvidence,
                     GraphState, normalize_agent_state)
 
@@ -81,10 +81,11 @@ async def agent_answer(
                 sources = {e.evidence_id: e.hit for e in final["evidence"]}
                 for key in missing:
                     if key not in sources:
-                        raise AgentError("Conflict references unknown evidence")
+                        raise AgentError("Conflict references unknown evidence", error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
                     metadata = final["documents"].get(sources[key].document_id)
                     if metadata is not None and DocumentStatus(metadata.get("status")) == DocumentStatus.READY:
-                        raise AgentError("Resolver lost a conflict citation from a READY source")
+                        raise AgentError("Resolver lost a conflict citation from a READY source",
+                                         error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
                 # Missing/non-READY documents are unavailable policy evidence, not
                 # a tool failure. Never expose a one-sided conflict or partial answer.
                 final = {**final, "status": ChatStatus.INSUFFICIENT_EVIDENCE,
@@ -102,7 +103,8 @@ async def agent_answer(
         # LangGraph wraps cancellation raised by a dependency inside a node.
         raise asyncio.CancelledError() from exc
     except Exception as exc:
-        error = exc if isinstance(exc, AgentError) else AgentError("Agent dependency or workflow failed")
+        error = exc if isinstance(exc, AgentError) else AgentError(
+            "Agent dependency or workflow failed", error_type=classify_error(exc))
         error.state = snapshot(nodes.latest or initial)
         error.trace = list((nodes.latest or initial)["trace"])
         if error is exc:
