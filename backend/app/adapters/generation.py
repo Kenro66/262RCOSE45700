@@ -35,7 +35,7 @@ def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] |
         model = required(config, "GENERATION_MODEL")
         base = required(config, "GENERATION_BASE_URL").rstrip("/")
         parsed = urlsplit(base)
-        parsed.port  # Validate malformed or out-of-range ports before sending a request.
+        _ = parsed.port  # Validate malformed or out-of-range ports before sending a request.
         if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("GENERATION_BASE_URL must be an HTTP(S) API root without credentials or query")
         timeout = float(config.get("GENERATION_TIMEOUT_SECONDS", "60"))
