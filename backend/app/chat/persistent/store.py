@@ -118,7 +118,7 @@ class ChatStore:
             await db.flush()
             return self.execution_view(current), True
 
-    async def get_execution(self, question_id, conditions=None, *, session_id=None):
+    async def get_execution(self, question_id, conditions=None, *, session_id=None, include_worker=False):
         async with self.factory() as db:
             row = await db.get(ChatSubmission, question_id)
             if row is None:
@@ -131,6 +131,8 @@ class ChatStore:
                 raise ChatProblem("QUESTION_CHANGED", "本题条件已更新，请读取当前问题状态。")
             result = self.execution_view(row)
             result["cancel_requested"] = row.cancel_requested
+            if include_worker:
+                result["_worker_id"] = row.worker_id
             return result
 
     async def execution_input(self, question_id, worker_id):

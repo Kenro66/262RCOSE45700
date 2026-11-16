@@ -21,6 +21,7 @@ class ChatRunner:
         self.executor = executor
         self.worker_id = uuid4().hex
         self.tasks = {}
+        self.claim_lock = asyncio.Lock()
 
     def start(self, question_id):
         previous = self.tasks.get(question_id)
@@ -123,16 +124,36 @@ class ChatRunner:
             if isinstance(exc, ChatProblem) and exc.status == 404:
                 return
             logger.exception("聊天执行失败：%s", question_id)
-            response = AgentChatResponse(status=ChatStatus.SYSTEM_ERROR, question_id=(await self.store.get_execution(question_id))["question_id"], message="系统暂时无法处理请求，请稍后重试。" if progress["reliable"] else "本题执行状态无法安全恢复，请重新提问。")
+            response = AgentChatResponse(status=ChatStatus.SYSTEM_ERROR, question_id=question_id, message="系统暂时无法处理请求，请稍后重试。" if progress["reliable"] else "本题执行状态无法安全恢复，请重新提问。")
             await self.store.finish(question_id, self.worker_id, "FAILED", response.model_dump(mode="json"), "SYSTEM_ERROR", state_reliable=progress["reliable"])  # 状态不可信时禁止清零重跑。
         finally:
             cancellation.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await cancellation
 
+    def _orphaned(self, question_id, record):
+        task = self.tasks.get(question_id)
+        return (record["execution_status"] in {"RUNNING", "CANCELLING"}
+                and record["_worker_id"] == self.worker_id
+                and (task is None or task.done()))
+
+    async def execution(self, question_id, conditions=None, *, session_id=None):
+        # 与认领、启动互斥，防止把刚提交但还未启动的任务误判为失活。
+        async with self.claim_lock:
+            record = await self.store.get_execution(question_id, conditions=conditions, session_id=session_id, include_worker=True)
+            if self._orphaned(question_id, record):
+                # 后台可能刚保存终态；重新读库后才能判定，不能覆盖已完成的结果。
+                record = await self.store.get_execution(question_id, conditions=conditions, session_id=session_id, include_worker=True)
+                if self._orphaned(question_id, record):
+                    response = AgentChatResponse(status=ChatStatus.SYSTEM_ERROR, question_id=question_id, message="本题执行状态无法安全恢复，请重新提问。")
+                    await self.store.finish(question_id, self.worker_id, "FAILED", response.model_dump(mode="json"), "SYSTEM_ERROR", state_reliable=False)
+                    record = await self.store.get_execution(question_id, conditions=conditions, session_id=session_id, include_worker=True)
+            record.pop("_worker_id")
+            return record
+
     async def wait(self, question_id, conditions=None):
         while True:
-            record = await self.store.get_execution(question_id, conditions=conditions)
+            record = await self.execution(question_id, conditions=conditions)
             if record["execution_status"] not in {"RUNNING", "CANCELLING"}:
                 return record
             await asyncio.sleep(POLL_SECONDS)

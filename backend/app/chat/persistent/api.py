@@ -36,9 +36,10 @@ def build_persistent_chat_router(store, runner):
     @router.post("", response_model=PersistentChatResponse, responses={202: {"model": ExecutionView}})
     async def chat(payload: PersistentChatRequest, request: Request, wait: bool = True):
         async def action():
-            record, should_start = await store.reserve(payload, runner.worker_id)
-            if should_start:
-                runner.start(record["question_id"])
+            async with runner.claim_lock:
+                record, should_start = await store.reserve(payload, runner.worker_id)
+                if should_start:
+                    runner.start(record["question_id"])
             if wait and record["execution_status"] in {"RUNNING", "CANCELLING"}:
                 record = await runner.wait(record["question_id"], conditions=payload.conditions or {})
             return execution_response(request, record)
@@ -78,7 +79,7 @@ def build_persistent_chat_router(store, runner):
     @router.get("/sessions/{session_id}/questions/{question_id}/execution", response_model=ExecutionView, responses={202: {"model": ExecutionView}})
     async def execution(session_id: str, question_id: str, request: Request):
         async def action():
-            record = await store.get_execution(question_id, session_id=session_id)
+            record = await runner.execution(question_id, session_id=session_id)
             return execution_status_reply(request, record)
         return await guarded(request, action)
 
