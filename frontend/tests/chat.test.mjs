@@ -1,4 +1,5 @@
-import test from 'node:test'
+import { test, vi } from 'vitest'
+import * as client from '../src/api/client'
 import assert from 'node:assert/strict'
 import { conflictGroups, displayCitations, validConditions } from '../src/chat/contracts.ts'
 import { clarificationFixture, conflictFixture, createMockTransport, session_id } from '../src/mocks/chat-fixtures.ts'
@@ -130,38 +131,11 @@ test('mock boundary isolates chats and resumes with the original question', asyn
 })
 
 
-test('HTTP session lifecycle consumes the persistent backend response format', async (t) => {
-  const { registerHooks } = await import('node:module')
-  const { readFileSync } = await import('node:fs')
-  const { default: ts } = await import('typescript')
-  const hook = registerHooks({
-    resolve(specifier, context, nextResolve) {
-      if (specifier === '../chat/mock-mode' && context.parentURL?.endsWith('/api/client.ts')) {
-        return { url: 'data:text/javascript,export const mockChatEnabled = false', shortCircuit: true }
-      }
-      return nextResolve(specifier, context)
-    },
-    load(url, context, nextLoad) {
-      if (url !== new URL('../src/api/client.ts', import.meta.url).href) {
-        return nextLoad(url, context)
-      }
-      const source = ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
-        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
-      }).outputText
-      return { format: 'module', source, shortCircuit: true }
-    },
-  })
-  let client
-  try {
-    client = await import('../src/api/client.ts')
-  } finally {
-    hook.deregister()
-  }
-
+test('HTTP session lifecycle consumes the persistent backend response format', async () => {
   const requests = []
   const session = { session_id: 's_1', title: 'Original chat' }
   const answer = { status: 'ANSWERED', answer: 'Saved answer', citations: [], message: null }
-  t.mock.method(globalThis, 'fetch', async (path, options) => {
+  vi.stubGlobal('fetch', async (path, options) => {
     requests.push([path, options.method ?? 'GET', options.body])
     switch (requests.length) {
       case 1: return Response.json({ sessions: [session] })
@@ -194,4 +168,20 @@ test('HTTP session lifecycle consumes the persistent backend response format', a
     ['/api/chat/sessions/s_1/questions/q_1/execution', 'GET', undefined],
     ['/api/chat/sessions/s_1/questions/q_2/execution', 'GET', undefined],
   ])
+})
+
+test('mock preview handles malformed evidence, a one-time failure and pre-aborted requests', async () => {
+  const signal = new AbortController()
+  const original = { session_id: 'preview', message: '原问题' }
+  const invalid = await createChatMock('invalid')(original, signal.signal, false)
+  assert.equal(conflictGroups(invalid), null)
+  assert.equal(conflictGroups(pending), null)
+
+  const submit = createChatMock('clarify', true)
+  const answer = await submit(original, signal.signal, false)
+  const followup = { ...original, question_id: answer.question_id, conditions: { destination_country: 'CN' } }
+  await assert.rejects(submit(followup, signal.signal, false), /MOCK_NETWORK_ERROR/)
+  signal.abort()
+  await assert.rejects(submit(original, signal.signal, false), { name: 'AbortError' })
+  await assert.rejects(createMockTransport().submit(request(), pending, false, signal.signal), { name: 'AbortError' })
 })

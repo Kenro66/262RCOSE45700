@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App'
+import { clarificationFixture, conflictFixture } from '../src/mocks/chat-fixtures'
 import { I18nProvider } from '../src/i18n/I18nContext'
 import type { ApiChatResponse, ApiDocument } from '../src/api/client'
 
@@ -268,4 +269,164 @@ describe('删除失败保护', () => {
     expect(screen.getByRole('button', { name: '删除 中国政策.pdf' })).toBeVisible()
     expect(screen.getByRole('dialog')).toBeVisible()
   })
+})
+
+
+describe('持久化聊天', () => {
+  it('从 HTTP 响应恢复追问，切页后保留草稿，并用原会话和问题 ID 提交', async () => {
+    const session = { session_id: 'saved-session', title: '已有会话' }
+    const followup = clarificationFixture(false, true)
+    const question = '携带物品入境有什么规定？'
+    const execution = '/api/chat/sessions/saved-session/questions/' + followup.question_id + '/execution'
+    let completed = false
+    const mock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
+      if (url === '/api/documents') return Response.json([readyDocument])
+      if (url === '/api/chat/sessions') return Response.json({ sessions: [session] })
+      if (url === '/api/chat/sessions/saved-session') return Response.json({
+        ...session, questions: [{ question_id: followup.question_id, message: question, clarification: followup.clarification }],
+      })
+      if (url === execution) return Response.json({
+        execution_status: completed ? 'SUCCEEDED' : 'NEEDS_CLARIFICATION',
+        retryable: false, response: completed ? answered : followup,
+      })
+      if (url === '/api/chat' && options?.method === 'POST') {
+        completed = true
+        return Response.json(answered)
+      }
+      throw new Error('测试未定义的请求：' + String(url))
+    })
+    vi.stubGlobal('fetch', mock)
+    const user = await openChat()
+    const country = () => screen.findByRole('combobox', { name: /您准备入境/ })
+    await screen.findByText(question, { selector: '.message-text' })
+    await user.selectOptions(await country(), 'KR')
+    await user.type(screen.getByRole('textbox', { name: /请补充携带物品/ }), '香烟 1 盒')
+    await user.click(screen.getByRole('button', { name: /^Documents/ }))
+    await user.click(screen.getByRole('button', { name: /^Chat/ }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /您准备入境/ })).toBeEnabled())
+    expect(await country()).toHaveValue('KR')
+    expect(screen.getByRole('textbox', { name: /请补充携带物品/ })).toHaveValue('香烟 1 盒')
+    const form = (await country()).closest('form')!
+    await user.click(within(form).getByRole('button', { name: '补充并继续' }))
+    await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' })
+    const request = mock.mock.calls.find(([url]) => url === '/api/chat')
+    expect(JSON.parse(request?.[1]?.body as string)).toEqual({
+      session_id: 'saved-session', question_id: followup.question_id, message: question,
+      conditions: { destination_country: 'KR', goods: '香烟 1 盒' },
+    })
+  })
+
+  it('同步删除失败时保留会话，重试成功后刷新也不再列出', async () => {
+    const session = { session_id: 'delete-session', title: '待删除会话' }
+    let attempts = 0
+    const mock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
+      if (url === '/api/documents') return Response.json([readyDocument])
+      if (url === '/api/chat/sessions') return Response.json({ sessions: attempts < 2 ? [session] : [] })
+      if (url === '/api/chat/sessions/delete-session' && options?.method !== 'DELETE') return Response.json({ ...session, questions: [{ question_id: 'delete-question', message: session.title }] })
+      if (url === '/api/chat/sessions/delete-session/questions/delete-question/execution') return Response.json({ execution_status: 'SUCCEEDED', retryable: false, response: answered })
+      if (url === '/api/chat/sessions/delete-session' && options?.method === 'DELETE') {
+        attempts += 1
+        return attempts === 1 ? Response.json({ detail: '暂时无法删除' }, { status: 503 }) : new Response(null, { status: 204 })
+      }
+      throw new Error('测试未定义的请求：' + String(url))
+    })
+    vi.stubGlobal('fetch', mock)
+    const user = userEvent.setup()
+    const view = renderApp()
+    await user.click(screen.getByRole('button', { name: /^Chat/ }))
+    const deleteName = '删除对话 待删除会话'
+    await user.click(await screen.findByRole('button', { name: deleteName }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: '确认删除' }))
+    await within(dialog).findByRole('alert')
+    expect(screen.getByRole('button', { name: deleteName })).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: deleteName })).not.toBeInTheDocument())
+    expect(attempts).toBe(2)
+    view.unmount()
+    renderApp()
+    await screen.findByText('中国政策.pdf')
+    await user.click(screen.getByRole('button', { name: /^Chat/ }))
+    expect(screen.queryByRole('button', { name: deleteName })).not.toBeInTheDocument()
+  })
+})
+
+
+describe('Agent 聊天操作', () => {
+  it('取消等待后端确认，保留条件并允许重提', async () => {
+    const followup = clarificationFixture(false)
+    const questionPath = '/questions/' + followup.question_id
+    const session = { session_id: 'cancel-session', title: '入境规定' }
+    let submissions = 0
+    let cancelled = false
+    const mock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(url)
+      if (path === '/api/documents') return Response.json([readyDocument])
+      if (path === '/api/chat/sessions') return Response.json({ sessions: [session] })
+      if (path.endsWith(questionPath + '/cancel')) {
+        cancelled = true
+        return Response.json({ execution_status: 'CANCELLING', retryable: false, response: null })
+      }
+      if (path.endsWith(questionPath + '/execution')) return Response.json({
+        execution_status: cancelled ? 'CANCELLED' : 'NEEDS_CLARIFICATION', retryable: cancelled, response: followup,
+      })
+      if (path.startsWith('/api/chat/sessions/')) return Response.json({
+        questions: [{ question_id: followup.question_id, message: '入境规定', clarification: followup.clarification }],
+      })
+      if (path === '/api/chat') {
+        submissions += 1
+        if (submissions === 1) return new Promise<Response>((_, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        })
+        return Response.json(answered)
+      }
+      throw new Error('测试未定义的请求：' + path)
+    })
+    vi.stubGlobal('fetch', mock)
+    const user = await openChat()
+    const select = await screen.findByRole('combobox')
+    await waitFor(() => expect(select).toBeEnabled())
+    await user.selectOptions(select, 'CN')
+    await user.click(screen.getByRole('button', { name: '补充并继续' }))
+    await user.click(await screen.findByRole('button', { name: '取消' }))
+    expect(await screen.findByText('正在取消')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '补充并继续' })).toBeEnabled())
+    expect(screen.getByRole('combobox')).toHaveValue('CN')
+    await user.click(screen.getByRole('button', { name: '补充并继续' }))
+    await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' })
+    expect(submissions).toBe(2)
+  })
+
+  it('从冲突卡片打开对应的证据', async () => {
+    const response = conflictFixture(false)
+    vi.stubGlobal('fetch', async (url: RequestInfo | URL) => {
+      if (url === '/api/documents') return Response.json([readyDocument])
+      if (url === '/api/chat/sessions') return Response.json({ sessions: [{ session_id: 'conflict-session', title: '入境规定' }] })
+      if (String(url).endsWith('/execution')) return Response.json({ execution_status: 'SUCCEEDED', retryable: false, response })
+      return Response.json({ questions: [{ question_id: response.question_id, message: '入境规定' }] })
+    })
+    const user = await openChat()
+    await user.click(await screen.findByRole('button', { name: /示例文件 B/ }))
+    await waitFor(() => expect(screen.getByText(response.citations[0].quote, { selector: '.citation-panel blockquote' })).toBeVisible())
+  })
+})
+
+
+it('新建聊天后可用示例问题发起请求，并从无文档提示返回文件页', async () => {
+  const mock = vi.fn(async (url: RequestInfo | URL) => {
+    if (url === '/api/documents') return Response.json([readyDocument])
+    if (url === '/api/chat/sessions') return Response.json({ sessions: [] })
+    if (url === '/api/chat') return Response.json({
+      status: 'NO_READY_DOCUMENTS', answer: null, message: '没有可用文档', citations: [],
+    })
+    throw new Error('测试未定义的请求：' + String(url))
+  })
+  vi.stubGlobal('fetch', mock)
+  const user = await openChat()
+  const newChat = screen.getAllByRole('button', { name: /新建/ })[0]
+  await user.click(newChat)
+  await user.click(screen.getByRole('button', { name: '进出中国时，可以委托他人办理行李物品的海关手续吗？' }))
+  await screen.findByText('没有可用文档', { selector: '.message-text' })
+  await user.click(screen.getAllByRole('button', { name: '前往 Documents' })[0])
+  expect(screen.getByRole('heading', { name: 'Documents' })).toBeVisible()
 })
