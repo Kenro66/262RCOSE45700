@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from langgraph.errors import NodeCancelledError
 
-from ...contracts import ChatStatus, DocumentStatus
+from ...contracts import ChatStatus, Citation, DocumentStatus
 from ..citation import Evidence, resolve_citations
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import detect_language
@@ -51,9 +51,12 @@ async def agent_answer(
     if saved.question is not None and (saved.question != question or saved.session_id != session_id
                                        or saved.question_id != question_id):
         raise ValueError("Restored state belongs to a different logical question/session")
-    for name, fn in (("retrieve_fn", retrieve_fn), ("get_documents_fn", get_documents_fn), ("generate_fn", generate_fn)):
-        if not callable(fn):
-            raise AgentError(f"Inject {name}; no production default is configured")
+    if not callable(retrieve_fn):
+        raise AgentError("Inject retrieve_fn; no production default is configured")
+    if not callable(get_documents_fn):
+        raise AgentError("Inject get_documents_fn; no production default is configured")
+    if not callable(generate_fn):
+        raise AgentError("Inject generate_fn; no production default is configured")
     if complete_evidence_fn is not None and not callable(complete_evidence_fn):
         raise AgentError("complete_evidence_fn must be callable")
     merged = {**saved.conditions, **(conditions or {})}
@@ -70,7 +73,7 @@ async def agent_answer(
     nodes = Nodes(Dependencies(retrieve_fn, get_documents_fn, generate_fn, complete_evidence_fn))
     try:
         final = await build_graph(nodes).ainvoke(initial, config={"recursion_limit": 40})
-        citations = []
+        citations: list[Citation] = []
         if final["status"] == ChatStatus.ANSWERED:
             _, citations = resolve_citations(final["answer"], final["evidence"], final["documents"])
         elif final["status"] == ChatStatus.CONFLICTING_EVIDENCE:

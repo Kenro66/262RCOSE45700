@@ -1,0 +1,4 @@
+# 沿用相同的 Compose 项目、服务名称及现有数据库卷。
+services:
+  postgres:
+    restart: unless-stopped
