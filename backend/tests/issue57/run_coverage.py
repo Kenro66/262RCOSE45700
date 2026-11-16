@@ -88,11 +88,11 @@ def main():
     branches = sum(row["covered_branches"] for row in rows)
     missed_branches = sum(len(row["missing_branches"]) for row in rows)
     result = dict(scope="All added/replacement executable lines in the 18 delivered Python files",
-        base="a51a98e", implementation="1097077", tests_rerun=not options.report_only,
+        base={"default": "302f5bb47004fde667a40cc2b32aa9367da9a1c2", "agent_nodes_and_service": "600a19cfd84d4478a10372ceb62f81962e9a2fb5"}, implementation="source_hashes.json", tests_rerun=not options.report_only,
         covered_lines=covered, total_lines=total, line_percent=100 * covered / total,
         covered_branches=branches, total_branches=branches + missed_branches,
         branch_percent=100 * branches / (branches + missed_branches), files=rows,
-        branch_note="service.py observe() has a redundant callback-null check; the callback is installed only when non-null. No production code was changed to inflate coverage.")
+        branch_note="Scope is this feature beyond its dependencies: #68 for normal files and #65 for Agent nodes/service. Whole-file coverage is also reported; no coverage exclusions are used.")
     (report_dir / "changed-coverage.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with (report_dir / "whole-file-coverage.txt").open("w", encoding="utf-8") as output:
         measured.report(morfs=[str(backend / name) for name in changed], file=output, show_missing=True)

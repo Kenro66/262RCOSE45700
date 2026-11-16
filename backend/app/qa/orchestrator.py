@@ -53,6 +53,24 @@ def _insufficient(language: str) -> ChatResponse:
     return ChatResponse(status=ChatStatus.INSUFFICIENT_EVIDENCE, answer=message, citations=[])
 
 
+async def _complete_sources(initial_hits, complete_evidence_fn, execution_context):
+    supplemental: Sequence[SupplementalEvidence] = ()
+    if (initial_hits and settings().get("EVIDENCE_COMPLETION_ENABLED", "false").strip().lower() == "true"
+            and complete_evidence_fn is not None):
+        try:
+            supplemental = await complete_evidence_fn(tuple(hit.model_copy(deep=True) for hit in initial_hits))
+            if not isinstance(supplemental, (list, tuple)) or len(supplemental) > 1:
+                raise ValueError("Completion must return at most one supplemental source")
+            if any(not isinstance(item, SupplementalEvidence) for item in supplemental):
+                raise ValueError("Invalid supplemental source")
+        except Exception:
+            if execution_context is not None:
+                await execution_context.before_generation()
+            logger.warning("Evidence completion failed; retaining Initial retrieval", exc_info=True)
+            supplemental = ()
+    return supplemental
+
+
 async def answer(question: str, session_id: str | None = None, *, retrieve_fn: Retrieval | None = None,
                  get_documents_fn: DocumentLookup | None = None, generate_fn: Generator | None = None,
                  complete_evidence_fn: Completion | None = None, execution_context=None) -> ChatResponse:
@@ -68,20 +86,7 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
     if not callable(generator):
         raise AnswerError("generate_fn must be callable")
     initial_hits = validate_hits(await cast(Retrieval, retrieve_fn)(question))
-    supplemental: Sequence[SupplementalEvidence] = ()
-    if (initial_hits and settings().get("EVIDENCE_COMPLETION_ENABLED", "false").strip().lower() == "true"
-            and complete_evidence_fn is not None):
-        try:
-            supplemental = await complete_evidence_fn(tuple(hit.model_copy(deep=True) for hit in initial_hits))
-            if not isinstance(supplemental, (list, tuple)) or len(supplemental) > 1:
-                raise ValueError("Completion must return at most one supplemental source")
-            if any(not isinstance(item, SupplementalEvidence) for item in supplemental):
-                raise ValueError("Invalid supplemental source")
-        except Exception:
-            if execution_context is not None:
-                await execution_context.before_generation()
-            logger.warning("Evidence completion failed; retaining Initial retrieval", exc_info=True)
-            supplemental = ()
+    supplemental = await _complete_sources(initial_hits, complete_evidence_fn, execution_context)
     evidence = assemble_evidence(initial_hits, supplemental)
     if execution_context is not None:
         evidence = await execution_context.evidence(evidence)

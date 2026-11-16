@@ -38,16 +38,11 @@ def build_persistent_chat_router(store, runner):
         async def action():
             record, should_start = await store.reserve(payload, runner.worker_id)
             execution_key = getattr(record, "run_id", None)
+            execution_options = {} if execution_key is None else {"execution_key": execution_key}
             if should_start:
-                if execution_key is None:
-                    runner.start(record["question_id"])
-                else:
-                    runner.start(record["question_id"], execution_key=execution_key)
+                runner.start(record["question_id"], **execution_options)
             if wait and record["execution_status"] in {"RUNNING", "CANCELLING"}:
-                if execution_key is None:
-                    record = await runner.wait(record["question_id"], conditions=payload.conditions or {})
-                else:
-                    record = await runner.wait(record["question_id"], conditions=payload.conditions or {}, execution_key=execution_key)
+                record = await runner.wait(record["question_id"], conditions=payload.conditions or {}, **execution_options)
             return execution_response(request, record)
         return await guarded(request, action)
 

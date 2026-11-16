@@ -74,8 +74,7 @@ async def agent_answer(
         clarification=None, conflict=None, trace=[],
     )
     async def observe(state):
-        if on_progress is not None:
-            await on_progress(snapshot(state, nodes.cached_evidence))
+        await on_progress(snapshot(state, nodes.cached_evidence))
 
     nodes = Nodes(Dependencies(cast(Retrieval, retrieve_fn), cast(DocumentLookup, get_documents_fn),
                               cast(Generator, generate_fn), complete_evidence_fn),

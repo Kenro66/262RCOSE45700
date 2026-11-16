@@ -4,8 +4,6 @@ import json
 from collections.abc import Callable
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from sqlalchemy.ext.asyncio import AsyncEngine
-
 from ...adapters.config import settings
 from ...adapters.generation import generate_text
 from ..evidence_completion import complete_evidence

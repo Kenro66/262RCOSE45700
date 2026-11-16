@@ -388,7 +388,7 @@ class Nodes:
                     return {"status": ChatStatus.INSUFFICIENT_EVIDENCE}
         return {"conflict": conflict, "status": ChatStatus.CONFLICTING_EVIDENCE}
 
-    async def generate_answer(self, state):
+    async def generate_answer(self, state: GraphState):
         if self.cached_evidence is not None:
             ids = list(dict.fromkeys(item.hit.document_id for item in state["evidence"]))
             documents = await _retrieval_dependency(self.deps.documents, ids)
@@ -399,7 +399,7 @@ class Nodes:
             evidence = [item for item in state["evidence"] if item.evidence_id in usable]
             if not evidence:
                 return {"status": ChatStatus.INSUFFICIENT_EVIDENCE, "answer": None, "documents": documents, "evidence": []}
-            refreshed = {**state, "documents": documents, "evidence": evidence}
+            refreshed: GraphState = {**state, "documents": documents, "evidence": evidence}
             if len(evidence) != len(state["evidence"]):
                 audit = await self.check_evidence(refreshed)
                 refreshed.update(audit)
