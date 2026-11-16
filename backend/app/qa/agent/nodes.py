@@ -444,7 +444,6 @@ class Nodes:
                 return {"status":ChatStatus.INSUFFICIENT_EVIDENCE}
             raise AgentError("Generated answer failed citation or language validation after one repair",
                              error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
-        raise AgentError("Generation repair did not terminate", error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
 
     async def finalize(self, state):
         if state["status"] is None:
