@@ -55,9 +55,10 @@ def build_client(db, monkeypatch, upload_dir: Path, processor):
 
     from app.storage.repo import create_processing_document
 
-    async def create_record(document_id: str, filename: str):
+    # Issue #45：接收并转传元数据，保持测试注入函数与正式创建函数一致。
+    async def create_record(document_id: str, filename: str, *, metadata=None):
         return await create_processing_document(
-            document_id, filename, session_factory=db
+            document_id, filename, session_factory=db, metadata=metadata
         )
 
     app = FastAPI()

@@ -118,8 +118,13 @@ def _ordinal(value: str) -> int | None:
 
 def _items(text: str) -> list[tuple[int, str]]:
     matches = list(ENUMERATION.finditer(text))
-    values = [_ordinal(match[1]) for match in matches]
-    if not values or any(value is None for value in values):
+    values: list[int] = []
+    for match in matches:
+        value = _ordinal(match[1])
+        if value is None:
+            return []
+        values.append(value)
+    if not values:
         return []
     if values != list(range(values[0], values[0] + len(values))):
         return []
@@ -129,8 +134,9 @@ def _items(text: str) -> list[tuple[int, str]]:
 
 def _open_enumeration(hit: SearchHit) -> bool:
     items = _items(hit.text)
+    first = ENUMERATION.search(hit.text)
     return bool(ARTICLE.match(hit.text.strip()) and items and items[0][0] == 1
-                and ENUM_INTRO.search(hit.text[:ENUMERATION.search(hit.text).start()])
+                and first is not None and ENUM_INTRO.search(hit.text[:first.start()])
                 and hit.text.rstrip().endswith(("；", ";")))
 
 
@@ -224,8 +230,11 @@ def _continuation_candidates(initial: Sequence[SearchHit], chunks: Sequence[Chun
         source = by_id.get(hit.chunk_id)
         if (source is None or source.language != "zh" or source.document_id != hit.document_id
                 or source.page_number != hit.page_number or source.text != hit.text
-                or not source.section_title or not ARTICLE.match(source.section_title)
-                or ARTICLE.match(source.text.strip())[0] != ARTICLE.match(source.section_title)[0]):
+                or not source.section_title):
+            continue
+        source_article = ARTICLE.match(source.text.strip())
+        section_article = ARTICLE.match(source.section_title)
+        if source_article is None or section_article is None or source_article[0] != section_article[0]:
             continue
         source_items = _items(source.text)
         for chunk in chunks:

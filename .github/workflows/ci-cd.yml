@@ -1,0 +1,286 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 不要中断正在进行的部署；仅取消并替换过时的 PR 检查任务。
+concurrency:
+  group: ci-cd-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+        shell: bash
+    env:
+      # 仅供本次 CI 使用的临时凭据；此处绝不加载 EC2 上的 .env 文件。
+      PGPASSWORD: ci-disposable-password
+      EMBEDDING_MODEL: BAAI/bge-m3
+      EMBEDDING_BASE_URL: ""
+      GENERATION_API_KEY: ""
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      PYTHONPATH: .
+      POLICY_FIXTURE_DIR: ${{ github.workspace }}/.cache/policy-fixtures
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements-cpu.txt
+            backend/requirements.txt
+            backend/requirements-ci.txt
+      - name: Install CPU backend dependencies
+        id: dependencies
+        run: |
+          python -m pip install -r requirements-cpu.txt
+          python -m pip install -r requirements.txt
+          python -m pip check
+          python -m pip install -r requirements-ci.txt
+      - name: Prepare real PDF test fixtures
+        id: fixtures
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: python scripts/prepare_issue9_policy_fixtures.py --output-dir "$POLICY_FIXTURE_DIR"
+      - name: Create disposable integration databases
+        id: databases
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          psql -h 127.0.0.1 -U rag -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE issue7_test_ci'
+          psql -h 127.0.0.1 -U rag -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE issue9_test_ci'
+      - name: Python syntax
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          python -m compileall -q app scripts tests
+      - name: Code quality (Ruff)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: python -m ruff check app
+      - name: Backend application type check (mypy)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: python -m mypy
+      - name: Unit and regression tests (SQLite)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.fixtures.outcome == 'success' }}
+        run: |
+          python -m pytest tests -ra \
+            --ignore=tests/test_issue7.py \
+            --ignore=tests/test_e2e_postgres.py \
+            --junitxml=test-results/unit.xml \
+            --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-unit.xml
+      - name: PostgreSQL end-to-end tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.databases.outcome == 'success' }}
+        env:
+          ISSUE9_TEST_DATABASE_URL: postgresql+asyncpg://rag:ci-disposable-password@127.0.0.1:5432/issue9_test_ci
+          ISSUE9_ALLOW_DATABASE_RESET: "1"
+        run: |
+          python -m pytest tests/test_e2e_postgres.py -ra --junitxml=test-results/postgres.xml \
+            --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-postgres.xml
+      - name: Issue 7 PostgreSQL tests (separate Python process)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.databases.outcome == 'success' }}
+        env:
+          ISSUE7_TEST_DATABASE_URL: postgresql+asyncpg://rag:ci-disposable-password@127.0.0.1:5432/issue7_test_ci
+          # conftest 在测试模块前导入应用；必须从一开始指向同一个独立测试库。
+          ISSUE9_TEST_DATABASE_URL: postgresql+asyncpg://rag:ci-disposable-password@127.0.0.1:5432/issue7_test_ci
+          ISSUE9_ALLOW_DATABASE_RESET: "1"
+        run: |
+          python -m pytest tests/test_issue7.py -ra --junitxml=test-results/issue7.xml \
+            --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-issue7.xml
+      - name: Require tests to cover changed backend code
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.dependencies.outcome == 'success' }}
+        run: |
+          python ../scripts/check_changed_coverage.py --scope backend --base "$PR_BASE_SHA" --head HEAD \
+            --report test-results/coverage-unit.xml \
+            --report test-results/coverage-postgres.xml \
+            --report test-results/coverage-issue7.xml \
+            --output test-results/changed-coverage.json
+      - name: Publish test summary
+        if: ${{ always() }}
+        run: python ../scripts/ci_summary.py test-results >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        id: dependencies
+        run: npm ci
+      - name: TypeScript check
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run typecheck
+      - name: Code quality (ESLint)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run lint
+      - name: Frontend specification tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:coverage
+      - name: Require tests to cover changed frontend code
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.dependencies.outcome == 'success' }}
+        run: |
+          python3 ../scripts/check_changed_coverage.py --scope frontend --base "$PR_BASE_SHA" --head HEAD \
+            --report coverage/cobertura-coverage.xml --statements coverage/coverage-final.json --output test-results/changed-coverage.json
+      - name: Build frontend
+        id: build
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run build
+      - name: Upload frontend test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-reports
+          path: |
+            frontend/test-results/
+            frontend/coverage/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload frontend build
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  deployment-scripts:
+    name: Deployment script checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Coverage gate and report tool self-tests
+        run: python -m unittest discover -s scripts/tests -v
+      - name: Shell syntax and lint
+        run: |
+          bash -n deploy/deploy.sh
+          shellcheck deploy/deploy.sh
+      - name: Validate GitHub Actions workflow
+        run: docker run --rm --volume "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.7 -color
+
+  deploy:
+    name: Deploy to EC2
+    needs: [backend, frontend, deployment-scripts]
+    # 默认关闭。完成服务器、连接凭据与 production 审批配置后才可启用。
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      vars.ENABLE_EC2_DEPLOY == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: production-ec2
+      cancel-in-progress: false
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+      EC2_REPO_DIR: ${{ vars.EC2_REPO_DIR }}
+      EC2_FRONTEND_ROOT: ${{ vars.EC2_FRONTEND_ROOT }}
+      DEPLOY_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+      - name: Validate configuration and prepare SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${EC2_HOST:?Set EC2_HOST secret}"
+          : "${EC2_USER:?Set EC2_USER secret}"
+          : "${EC2_SSH_KEY:?Set EC2_SSH_KEY secret}"
+          : "${EC2_KNOWN_HOSTS:?Set verified EC2_KNOWN_HOSTS secret}"
+          : "${EC2_REPO_DIR:?Set EC2_REPO_DIR variable}"
+          : "${EC2_FRONTEND_ROOT:?Set EC2_FRONTEND_ROOT variable}"
+          [[ "$EC2_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$EC2_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2_deploy
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/ec2_deploy ~/.ssh/known_hosts
+      - name: Transfer build and deploy the tested commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_args=(-i "$HOME/.ssh/ec2_deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+          remote="$EC2_USER@$EC2_HOST"
+          upload_dir=$(ssh "${ssh_args[@]}" "$remote" 'mktemp -d /tmp/rag-deploy.XXXXXXXX')
+          [[ "$upload_dir" =~ ^/tmp/rag-deploy\.[a-zA-Z0-9]+$ ]]
+          cleanup() {
+            printf -v command 'rm -f -- %q %q; rmdir -- %q' \
+              "$upload_dir/frontend-dist.tar.gz" "$upload_dir/deploy.sh" "$upload_dir"
+            # command 已通过 printf %q 在本机逐项转义，明确发送给远程执行。
+            # shellcheck disable=SC2029
+            ssh "${ssh_args[@]}" "$remote" "$command" || true
+          }
+          trap cleanup EXIT
+          tar -czf frontend-dist.tar.gz -C frontend-dist .
+          scp "${ssh_args[@]}" frontend-dist.tar.gz deploy/deploy.sh "$remote:$upload_dir/"
+          printf -v command '%q ' bash "$upload_dir/deploy.sh" "$DEPLOY_SHA" \
+            "$upload_dir/frontend-dist.tar.gz" "$EC2_REPO_DIR" "$EC2_FRONTEND_ROOT"
+          # command 已通过 printf %q 转义，变量在本机展开是预期行为。
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$remote" "$command"
+      - name: Remove runner SSH key
+        if: ${{ always() }}
+        run: rm -f -- "$HOME/.ssh/ec2_deploy"

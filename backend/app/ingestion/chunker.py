@@ -22,6 +22,7 @@ _ITEM = re.compile(r"(?m)^[ \t\u3000]*(?:[（(][一二三四五六七八九十�
 _EXCEPTION = re.compile(r"\s*(?:但|除外|다만|제외한다|단[,， ])")
 _BREAKS = [_ITEM, re.compile(r"\n[ \t]*\n"), re.compile(r"[。！？；;!?]|(?<!\d)\.(?=\s|$)"), re.compile(r"\n"), re.compile(r"[ \t]+")]
 _TERMS = ("中华人民共和国", "海关总署", "人民币", "增值税", "消费税", "进出境")
+AuditEntry = dict[str, str | int | bool | None]
 
 
 class ChunkingError(ValueError):
@@ -64,8 +65,8 @@ def _headings(text: str):
                     and _CHINESE_REFERENCE.match(text, match.end(1)))]
 
 
-def _prepare(pages: list[ParsedPage], audit: list[dict]) -> list[tuple[ParsedPage, str]]:
-    repeated = defaultdict(Counter)
+def _prepare(pages: list[ParsedPage], audit: list[AuditEntry]) -> list[tuple[ParsedPage, str]]:
+    repeated: defaultdict[str, Counter[str]] = defaultdict(Counter)
     for page in pages:
         lines = page.text.splitlines()
         candidates = {lines[i].strip() for i in _edge_indices(lines)}
@@ -178,11 +179,11 @@ def _windows(tokenizer, text: str, start: int, stop: int):
         start = next_start if next_start > start else end
 
 
-def _chunk_with_audit(pages: list[ParsedPage]) -> tuple[list[Chunk], list[dict]]:
+def _chunk_with_audit(pages: list[ParsedPage]) -> tuple[list[Chunk], list[AuditEntry]]:
     if not isinstance(pages, list) or any(not isinstance(page, ParsedPage) for page in pages):
         raise ChunkingError("pages must be a list of ParsedPage objects")
     seen = set()
-    last_page = {}
+    last_page: dict[str, int] = {}
     for page in pages:
         if page.page_number != page.page_index + 1:
             raise ChunkingError("Physical page_number must equal page_index + 1")
@@ -193,12 +194,12 @@ def _chunk_with_audit(pages: list[ParsedPage]) -> tuple[list[Chunk], list[dict]]
         last_page[page.document_id] = page.page_index
     if not any(page.text.strip() for page in pages):
         return [], []
-    audit = []
+    audit: list[AuditEntry] = []
     prepared = _prepare(pages, audit)
     tokenizer = _tokenizer()
     chunks = []
-    counters = defaultdict(int)
-    previous = {}
+    counters: defaultdict[str, int] = defaultdict(int)
+    previous: dict[str, tuple[str | None, int]] = {}
     for page, text in prepared:
         if not text.strip():
             continue

@@ -109,8 +109,9 @@ def build_client(db, monkeypatch, upload_dir: Path, processor):
         return f"DOC{counter['n']:03d}"
     from app.storage.repo import create_processing_document
 
-    async def create_record(document_id: str, filename: str):
-        return await create_processing_document(document_id, filename, session_factory=db)
+    # Issue #45：接收并转传元数据，保持测试注入函数与正式创建函数一致。
+    async def create_record(document_id: str, filename: str, *, metadata=None):
+        return await create_processing_document(document_id, filename, session_factory=db, metadata=metadata)
     app = FastAPI()
     app.include_router(create_documents_router(processor, generate_document_id=gen_id, create_processing_record=create_record, session_factory=db), prefix='/api')
     monkeypatch.setattr(service, 'UPLOAD_DIR', upload_dir)
@@ -717,7 +718,7 @@ async def test_failure_marker_error_still_cleans_original(tmp_path, monkeypatch)
     async def gen():
         return 'DOC900'
 
-    async def create(*args):
+    async def create(*args, **kwargs):
         return object()
 
     async def processor(*args):
