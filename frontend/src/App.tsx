@@ -186,7 +186,7 @@ function Sidebar({
   selectedConversationId: number | null
   onSelectConversation: (id: number) => void
   onNewConversation: () => void
-  onDeleteConversation: (id: number) => Promise<void>
+  onDeleteConversation: (conversation: Conversation) => Promise<void>
 }) {
   const { t } = useI18n()
   const [deletingConversation, setDeletingConversation] = useState<Conversation | null>(null)
@@ -256,7 +256,7 @@ function Sidebar({
                 setDeleteBusy(true)
                 setDeleteError(false)
                 try {
-                  await onDeleteConversation(deletingConversation.id)
+                  await onDeleteConversation(deletingConversation)
                   setDeletingConversation(null)
                 } catch {
                   setDeleteError(true)
@@ -856,21 +856,19 @@ function ChatPage({
     return () => { stopped = true; window.clearTimeout(timer); setRestoring(false) }
   }, [visible, persisted, sessionId, conversationId])
 
-  function cancelFollowup(questionId: string) {
+  function cancelFollowup(sessionId: string, questionId: string) {
     const controller = activeChatRequest.current
-    if (!sessionId) return Promise.resolve(false)
     const confirm = async () => {
       let execution = await cancelChatExecution(sessionId, questionId)
       while (execution.execution_status === 'CANCELLING' && !controller?.signal.aborted) {
         await new Promise(resolve => window.setTimeout(resolve, 500))
-        if (controller?.signal.aborted) return false
-        execution = await getChatExecution(sessionId, questionId)
+        if (!controller?.signal.aborted) execution = await getChatExecution(sessionId, questionId)
       }
       if (execution.execution_status !== 'CANCELLED' || execution.retryable !== true) return false
       controller?.abort()
       return true
     }
-    const pending = confirm().finally(() => {
+    const pending = confirm().catch(() => false).finally(() => {
       if (cancellation.current === pending) cancellation.current = null
     })
     cancellation.current = pending
@@ -881,17 +879,17 @@ function ChatPage({
     conversationId: number, question: string,
     followup?: FollowupRequest, pendingId?: number, signal?: AbortSignal,
   ) => {
-    if (activeChatRequest.current) throw new Error('REQUEST_IN_PROGRESS')
+    if (activeChatRequest.current) return
+    signal?.throwIfAborted()
     requestVersion.current += 1
     const controller = new AbortController()
     const abort = () => controller.abort()
     signal?.addEventListener('abort', abort, { once: true })
-    if (signal?.aborted) controller.abort()
     activeChatRequest.current = controller
     setLoading(true); setCitationMessageId(null); setSelectedCitation(1)
     try {
       const result = await sendChatMessage(followup ?? { message: question, session_id: conversation!.session_id }, controller.signal)
-      await cancellation.current?.catch(() => false)
+      await cancellation.current
       if (controller.signal.aborted) return
       const response = convertC5ChatResponse(result)
       if (pendingId && response.status === 'SYSTEM_ERROR') throw new Error('FOLLOWUP_FAILED')
@@ -903,7 +901,7 @@ function ChatPage({
           request: question, apiResponse: result, question_id: response.question_id, clarification: response.clarification },
       ])
     } catch (error) {
-      await cancellation.current?.catch(() => false)
+      await cancellation.current
       if (controller.signal.aborted) return
       if (pendingId) throw error // Form owns errors so selections and IDs survive retry.
       onSetMessages(conversationId, current => [...current, {
@@ -958,7 +956,7 @@ const sendMessage = () => submitQuestion(input)
                       {message.responseStatus === 'NEEDS_CLARIFICATION' && message.clarification && <ClarificationForm
                         clarification={message.clarification} resolved={message.followupResolved} busy={loading || restoring || !!message.executionLocked}
                         values={message.followupValues}
-                        onCancel={mockChatEnabled ? undefined : () => cancelFollowup(message.question_id!)}
+                        onCancel={mockChatEnabled ? undefined : () => cancelFollowup(conversation!.session_id, message.question_id!)}
                         onChange={(field, value) => onSetMessages(conversation!.id, current => current.map(item =>
                           item.id === message.id ? { ...item, followupValues: { ...item.followupValues, [field]: value } } : item
                         ))}
@@ -1088,9 +1086,8 @@ useEffect(() => {
     }))
   }
 
-  const deleteConversation = async (conversationId: number) => {
-    const target = conversations.find(conversation => conversation.id === conversationId)
-    if (!target) return
+  const deleteConversation = async (target: Conversation) => {
+    const conversationId = target.id
     if (!mockChatEnabled && (target.persisted || target.messages.length)) {
       await deleteChatSession(target.session_id)
     }

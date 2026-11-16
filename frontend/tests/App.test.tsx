@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App'
+import { ClarificationForm } from '../src/chat/AgentMessages'
 import { clarificationFixture, conflictFixture } from '../src/mocks/chat-fixtures'
 import { I18nProvider } from '../src/i18n/I18nContext'
 import type { ApiChatResponse, ApiDocument } from '../src/api/client'
@@ -186,7 +187,11 @@ describe('问答页面需求', () => {
     const user = await openChat()
     await ask(user)
     expect(await screen.findByText('生成服务暂时不可用')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: '重试' }))
+    const retry = screen.getByRole('button', { name: '重试' })
+    act(() => {
+      retry.click()
+      retry.click()
+    })
     expect(await screen.findByText('应当按照证据办理申报。')).toBeVisible()
     const requests = fetcher.mock.calls.filter(([url]) => url === '/api/chat')
     expect(requests).toHaveLength(2)
@@ -279,6 +284,7 @@ describe('持久化聊天', () => {
     const question = '携带物品入境有什么规定？'
     const execution = '/api/chat/sessions/saved-session/questions/' + followup.question_id + '/execution'
     let completed = false
+    let attempts = 0
     const mock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
       if (url === '/api/documents') return Response.json([readyDocument])
       if (url === '/api/chat/sessions') return Response.json({ sessions: [session] })
@@ -290,6 +296,8 @@ describe('持久化聊天', () => {
         retryable: false, response: completed ? answered : followup,
       })
       if (url === '/api/chat' && options?.method === 'POST') {
+        attempts += 1
+        if (attempts === 1) return Response.json({ status: 'SYSTEM_ERROR', answer: null, citations: [], message: '暂时失败' })
         completed = true
         return Response.json(answered)
       }
@@ -308,9 +316,15 @@ describe('持久化聊天', () => {
     expect(screen.getByRole('textbox', { name: /请补充携带物品/ })).toHaveValue('香烟 1 盒')
     const form = (await country()).closest('form')!
     await user.click(within(form).getByRole('button', { name: '补充并继续' }))
+    await screen.findByText('提交失败，已保留您的选择。请重试。')
+    expect(await country()).toHaveValue('KR')
+    await user.click(within(form).getByRole('button', { name: '重试' }))
     await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' })
-    const request = mock.mock.calls.find(([url]) => url === '/api/chat')
-    expect(JSON.parse(request?.[1]?.body as string)).toEqual({
+    const requests = mock.mock.calls.filter(([url]) => url === '/api/chat')
+      .map(([, options]) => JSON.parse(options?.body as string))
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toEqual(requests[1])
+    expect(requests[0]).toEqual({
       session_id: 'saved-session', question_id: followup.question_id, message: question,
       conditions: { destination_country: 'KR', goods: '香烟 1 盒' },
     })
@@ -353,17 +367,22 @@ describe('持久化聊天', () => {
 
 
 describe('Agent 聊天操作', () => {
-  it('取消等待后端确认，保留条件并允许重提', async () => {
+  it.each([true, false])('取消等待后端确认并允许重提（旧请求成功返回：%s）', async (lateSuccess) => {
     const followup = clarificationFixture(false)
     const questionPath = '/questions/' + followup.question_id
     const session = { session_id: 'cancel-session', title: '入境规定' }
+    let finishOldRequest: (response: Response) => void = () => { throw new Error('旧请求尚未开始') }
     let submissions = 0
     let cancelled = false
+    let cancellationAttempts = 0
     const mock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
       const path = String(url)
       if (path === '/api/documents') return Response.json([readyDocument])
       if (path === '/api/chat/sessions') return Response.json({ sessions: [session] })
       if (path.endsWith(questionPath + '/cancel')) {
+        cancellationAttempts += 1
+        if (cancellationAttempts === 1) return Response.json({ detail: '取消请求失败' }, { status: 503 })
+        if (cancellationAttempts === 2) return Response.json({ execution_status: 'CANCELLED', retryable: false, response: null })
         cancelled = true
         return Response.json({ execution_status: 'CANCELLING', retryable: false, response: null })
       }
@@ -375,8 +394,11 @@ describe('Agent 聊天操作', () => {
       })
       if (path === '/api/chat') {
         submissions += 1
-        if (submissions === 1) return new Promise<Response>((_, reject) => {
-          options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        if (submissions === 1) return new Promise<Response>((resolve, reject) => {
+          finishOldRequest = resolve
+          if (!lateSuccess) options?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'))
+          }, { once: true })
         })
         return Response.json(answered)
       }
@@ -386,15 +408,30 @@ describe('Agent 聊天操作', () => {
     const user = await openChat()
     const select = await screen.findByRole('combobox')
     await waitFor(() => expect(select).toBeEnabled())
+    fireEvent.submit(select.closest('form')!)
+    expect(submissions).toBe(0)
     await user.selectOptions(select, 'CN')
     await user.click(screen.getByRole('button', { name: '补充并继续' }))
     await user.click(await screen.findByRole('button', { name: '取消' }))
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: '补充并继续' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '取消' }))
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: '补充并继续' })).toBeDisabled()
+    const cancel = screen.getByRole('button', { name: '取消' })
+    act(() => {
+      cancel.click()
+      cancel.click()
+    })
     expect(await screen.findByText('正在取消')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('button', { name: '补充并继续' })).toBeEnabled())
+    if (lateSuccess) finishOldRequest(Response.json({ ...answered, answer: '旧请求迟到的回答' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '补充并继续' })).toBeEnabled(), { timeout: 3000 })
     expect(screen.getByRole('combobox')).toHaveValue('CN')
     await user.click(screen.getByRole('button', { name: '补充并继续' }))
     await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' })
     expect(submissions).toBe(2)
+    expect(cancellationAttempts).toBe(3)
+    expect(screen.queryByText('旧请求迟到的回答')).not.toBeInTheDocument()
   })
 
   it('从冲突卡片打开对应的证据', async () => {
@@ -429,4 +466,112 @@ it('新建聊天后可用示例问题发起请求，并从无文档提示返回�
   await screen.findByText('没有可用文档', { selector: '.message-text' })
   await user.click(screen.getAllByRole('button', { name: '前往 Documents' })[0])
   expect(screen.getByRole('heading', { name: 'Documents' })).toBeVisible()
+})
+
+it('恢复失败时显示提示，取消删除时保留会话且不发送删除请求', async () => {
+  const mock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
+    if (url === '/api/documents') return Response.json([readyDocument])
+    if (url === '/api/chat/sessions') return Response.json({ sessions: [{ session_id: 'offline', title: '恢复失败的会话' }] })
+    if (url === '/api/chat/sessions/offline' && options?.method !== 'DELETE') {
+      return Response.json({ detail: '暂时无法恢复' }, { status: 503 })
+    }
+    throw new Error('测试未定义的请求：' + String(url))
+  })
+  vi.stubGlobal('fetch', mock)
+  const user = await openChat()
+  await screen.findByRole('alert')
+  const deleteButton = screen.getByRole('button', { name: '删除对话 恢复失败的会话' })
+  await user.click(deleteButton)
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '取消' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await user.click(deleteButton)
+  const backdrop = screen.getByRole('dialog').parentElement!
+  await user.click(backdrop)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(deleteButton).toBeVisible()
+  expect(mock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
+})
+
+it('Enter 发送当前问题，空输入不发送', async () => {
+  const mock = vi.fn(async (url: RequestInfo | URL) => {
+    if (url === '/api/documents') return Response.json([readyDocument])
+    if (url === '/api/chat/sessions') return Response.json({ sessions: [] })
+    if (url === '/api/chat') return Response.json(answered)
+    throw new Error('测试未定义的请求：' + String(url))
+  })
+  vi.stubGlobal('fetch', mock)
+  const user = await openChat()
+  const input = screen.getByRole('textbox')
+  await user.click(input)
+  await user.keyboard('{Enter}')
+  expect(mock.mock.calls.filter(([path]) => path === '/api/chat')).toHaveLength(0)
+  await user.type(input, '入境规定{Enter}')
+  await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' })
+  expect(mock.mock.calls.filter(([path]) => path === '/api/chat')).toHaveLength(1)
+})
+
+it('切页续跑，恢复时轮询未完成的请求并保留本地问题', async () => {
+  const session = { session_id: 'running', title: '旧问题' }
+  let finish: (response: Response) => void = () => { throw new Error('请求尚未开始') }
+  let hasSubmitted = false
+  let emptySnapshot = false
+  let executionReads = 0
+  const mock = vi.fn(async (url: RequestInfo | URL) => {
+    if (url === '/api/documents') return Response.json([readyDocument])
+    if (url === '/api/chat/sessions') return Response.json({ sessions: [session] })
+    if (url === '/api/chat/sessions/running') return Response.json({
+      ...session, questions: emptySnapshot ? [] : [{ question_id: 'q1', message: '旧问题' }],
+    })
+    if (url === '/api/chat/sessions/running/questions/q1/execution') {
+      executionReads += 1
+      const running = executionReads === 1
+      return Response.json({ execution_status: running ? 'RUNNING' : 'SUCCEEDED', retryable: false, response: running ? null : answered })
+    }
+    if (url === '/api/chat') {
+      hasSubmitted = true
+      return new Promise<Response>(resolve => { finish = resolve })
+    }
+    throw new Error('测试未定义的请求：' + String(url))
+  })
+  vi.stubGlobal('fetch', mock)
+  const user = await openChat()
+  await screen.findByText('旧问题', { selector: '.message-text' })
+  await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' }, { timeout: 2000 })
+  expect(executionReads).toBeGreaterThanOrEqual(2)
+  await ask(user, '切页续跑的问题')
+  expect(hasSubmitted).toBe(true)
+  const detailReads = () => mock.mock.calls.filter(([path]) => path === '/api/chat/sessions/running').length
+  const beforeSwitch = detailReads()
+  await user.click(screen.getByRole('button', { name: /^Documents/ }))
+  await user.click(screen.getByRole('button', { name: /^Chat/ }))
+  expect(detailReads()).toBe(beforeSwitch)
+  await user.click(screen.getByRole('button', { name: /^Documents/ }))
+  finish(Response.json({ ...answered, answer: '切页后收到的回答' }))
+  emptySnapshot = true
+  await user.click(screen.getByRole('button', { name: /^Chat/ }))
+  await waitFor(() => expect(detailReads()).toBeGreaterThan(beforeSwitch))
+  expect(await screen.findByText('切页后收到的回答', { selector: '.message-text' })).toBeVisible()
+  expect(screen.getByText('切页续跑的问题', { selector: '.message-text' })).toBeVisible()
+})
+
+
+it('追问取消回调抛错时显示提示并允许再次取消', async () => {
+  const { clarification } = clarificationFixture(false)
+  if (!clarification) throw new Error('测试需要追问字段')
+  const user = userEvent.setup()
+  const onCancel = vi.fn<() => Promise<boolean>>()
+    .mockRejectedValueOnce(new Error('取消请求失败'))
+    .mockResolvedValueOnce(true)
+  const onSubmit = vi.fn(async (_conditions: Record<string, string>, signal: AbortSignal) => {
+    await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }))
+  })
+  render(<I18nProvider><ClarificationForm clarification={clarification} busy={false}
+    values={{ destination_country: 'CN' }} onChange={() => {}} onSubmit={onSubmit} onCancel={onCancel}
+  /></I18nProvider>)
+  await user.click(screen.getByRole('button', { name: '补充并继续' }))
+  await user.click(screen.getByRole('button', { name: '取消' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('未能确认取消')
+  await user.click(screen.getByRole('button', { name: '取消' }))
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  expect(onCancel).toHaveBeenCalledTimes(2)
 })

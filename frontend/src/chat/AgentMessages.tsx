@@ -42,9 +42,8 @@ export function ClarificationForm({ clarification, resolved, busy, values = {}, 
     } finally { if (controller.current === active) controller.current = null }
   }
   async function cancel() {
-    if (cancelling.current) return
     const active = controller.current
-    if (!active && !onCancel) return
+    if (cancelling.current || (!active && !onCancel)) return
     cancelling.current = true
     setIsCancelling(true)
     setCancelError(false)
