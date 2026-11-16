@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 async def _generate(function: Generator, messages: list[dict[str, str]]) -> str:
     if inspect.iscoroutinefunction(function) or inspect.iscoroutinefunction(getattr(function, "__call__", None)):
-        return await cast(Awaitable[str], function(messages))
+        pending = function(messages)
+        if not inspect.isawaitable(pending):
+            raise TypeError("Asynchronous generator must return an awaitable")
+        return await pending
     result = await asyncio.to_thread(function, messages)
     if inspect.isawaitable(result):
         return await result
@@ -57,9 +60,10 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
     language = detect_language(question)
     if session_id is not None and (not isinstance(session_id, str) or not session_id.strip()):
         raise ValueError("session_id must be a nonempty string or None")
-    for name, function in (("retrieve_fn", retrieve_fn), ("get_documents_fn", get_documents_fn)):
-        if not callable(function):
-            raise AnswerError(f"Inject an asynchronous {name}; no backend default is configured")
+    if not callable(retrieve_fn):
+        raise AnswerError("Inject an asynchronous retrieve_fn; no backend default is configured")
+    if not callable(get_documents_fn):
+        raise AnswerError("Inject an asynchronous get_documents_fn; no backend default is configured")
     generator = generate_text if generate_fn is None else generate_fn
     if not callable(generator):
         raise AnswerError("generate_fn must be callable")

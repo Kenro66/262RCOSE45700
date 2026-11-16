@@ -8,10 +8,10 @@ import inspect
 import json
 import re
 import unicodedata
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from collections.abc import Awaitable, Sequence
-from typing import cast
+from typing import TypeVar, cast
 
 from pydantic import BaseModel
 from langgraph.errors import NodeCancelledError
@@ -26,6 +26,8 @@ from ..prompts import build_messages, detect_language
 from ..retriever import RetrievalError
 from .state import (AgentState, AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
                     EvidenceDecision, GraphState, RewriteDecision)
+
+Decision = TypeVar("Decision", bound=BaseModel)
 
 
 class AgentErrorType(str, Enum):
@@ -166,7 +168,7 @@ class Nodes:
         self.cached_evidence = cached_evidence
         self.on_progress = on_progress
 
-    async def decide(self, task: str, state: GraphState, schema: type[BaseModel], *, feedback=None):
+    async def decide(self, task: str, state: GraphState, schema: type[Decision], *, feedback=None) -> Decision:
         data = {
             "task": task, "question": state["question"], "conditions": state["conditions"],
             "current_query": state["current_query"], "retrieval_count": state["retrieval_count"],
@@ -235,7 +237,10 @@ class Nodes:
         raw: str | Awaitable[str]
         try:
             if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None)):
-                raw = await cast(Awaitable[str], fn(messages))
+                pending = fn(messages)
+                if not inspect.isawaitable(pending):
+                    raise TypeError("Asynchronous generator must return an awaitable")
+                raw = await pending
             else:
                 raw = await asyncio.to_thread(fn, messages)
                 if inspect.isawaitable(raw):
@@ -279,7 +284,7 @@ class Nodes:
                 "clarification": Clarification(questions=state["missing_conditions"]),
                 "status": ChatStatus.NEEDS_CLARIFICATION}
 
-    async def retrieve(self, state):
+    async def retrieve(self, state: GraphState):
         # Guard the side effect itself, as well as the conditional edge before it.
         if state["retrieval_count"] >= 3:
             return {"status": ChatStatus.INSUFFICIENT_EVIDENCE}
@@ -309,7 +314,7 @@ class Nodes:
         return {"retrieval_count": state["retrieval_count"] + 1, "evidence": evidence,
                 "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]}
 
-    async def check_evidence(self, state):
+    async def check_evidence(self, state: GraphState):
         ids = list(dict.fromkeys(e.hit.document_id for e in state["evidence"]))
         documents = await _retrieval_dependency(self.deps.documents, ids) if ids else {}
         # Revalidate READY status and metadata on resume, rather than trusting cached metadata.
@@ -405,7 +410,7 @@ class Nodes:
         return await self._generate_answer(state)
 
     async def _generate_answer(self, state):
-        feedback = None
+        feedback: dict[str, list[str] | str] | None = None
         for attempt in range(2):
             try:
                 decision = await self.decide("generate_answer",state,AnswerDecision,feedback=feedback)
@@ -447,7 +452,7 @@ class Nodes:
         return {}
 
     def tracked(self, name):
-        async def run(state):
+        async def run(state: GraphState):
             state = {**state, "trace": [*state["trace"], name]}
             self.latest = state
             try:

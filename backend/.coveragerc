@@ -1,0 +1,7 @@
+[run]
+# 三组测试分别生成 XML；关卡按同一文件和行号合并覆盖，不合并测试数据库。
+relative_files = True
+
+[report]
+show_missing = True
+skip_empty = False
