@@ -219,12 +219,13 @@ def _enumeration_overview(question: str | None, hit: SearchHit) -> bool:
 
 
 def _continuation_candidates(initial: Sequence[SearchHit], chunks: Sequence[Chunk],
-                             question: str | None) -> list[SupplementalEvidence]:
+                             question: str | None, *, original_question: str | None = None) -> list[SupplementalEvidence]:
     conditions = _conditions(question)
+    overview_question = question if original_question is None else original_question
     by_id = {chunk.chunk_id: chunk for chunk in chunks}
     candidates = []
     for hit in initial:
-        overview = _enumeration_overview(question, hit)
+        overview = _enumeration_overview(overview_question, hit)
         if not _open_enumeration(hit) or not (conditions or overview):
             continue
         source = by_id.get(hit.chunk_id)
@@ -259,31 +260,40 @@ def _continuation_candidates(initial: Sequence[SearchHit], chunks: Sequence[Chun
 
 
 def find_supplemental(initial: Sequence[SearchHit], chunks: Sequence[Chunk], *,
-                      question: str | None = None) -> list[SupplementalEvidence]:
+                      question: str | None = None,
+                      original_question: str | None = None) -> list[SupplementalEvidence]:
     """One unique source across both rules; uncertainty/duplicates keep Initial only."""
     if len({chunk.chunk_id for chunk in chunks}) != len(chunks):
         return []
     candidates = {item.chunk.chunk_id: item for item in (
-        *_age_candidates(initial, chunks), *_continuation_candidates(initial, chunks, question))}
+        *_age_candidates(initial, chunks),
+        *_continuation_candidates(initial, chunks, question, original_question=original_question))}
     existing = {hit.chunk_id for hit in initial}
     return list(candidates.values()) if len(candidates) == 1 and not existing.intersection(candidates) else []
 
 
 async def complete_evidence(initial: Sequence[SearchHit], *, load_chunks_fn: ChunkLookup,
-                            question: str | None = None) -> list[SupplementalEvidence]:
-    """Read-only completion failures fall back; cancellation is never swallowed."""
+                            question: str | None = None,
+                            original_question: str | None = None) -> list[SupplementalEvidence]:
+    """Keep retrieval context for conditions, but overview grammar uses the original query.
+
+    Single RAG may omit original_question. Agent passes it separately instead of
+    extracting instruction-like labels from user text or serialized metadata.
+    Read-only completion failures fall back; cancellation is never swallowed.
+    """
     if not initial:
         return []
+    overview_question = question if original_question is None else original_question
     documents = list(dict.fromkeys([
         *(hit.document_id for hit, _, _ in _rules(initial)),
         *(hit.document_id for hit in initial
-          if _open_enumeration(hit) and (_conditions(question) or _enumeration_overview(question, hit))),
+          if _open_enumeration(hit) and (_conditions(question) or _enumeration_overview(overview_question, hit))),
     ]))
     if not documents:
         return []
     try:
         chunks = await load_chunks_fn(documents)
-        return find_supplemental(initial, chunks, question=question)
+        return find_supplemental(initial, chunks, question=question, original_question=original_question)
     except Exception:
         logger.warning("Evidence completion unavailable; retaining Initial retrieval", exc_info=True)
         return []

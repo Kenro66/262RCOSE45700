@@ -103,6 +103,29 @@ class CrosspageRuleTests(unittest.TestCase):
                            '进境人员什么情况下应该变更申报？')
         self.assertEqual([item.chunk for item in result], [self.target])
 
+    def test_overview_abstains_on_unrecognized_long_source_predicate(self):
+        # TEST ONLY: recipient/manner boundary is unknown, so no guessed terminal verb.
+        action = '向海关办理大型特殊物品备案登记'
+        source = self.source.model_copy(update={
+            'text': self.source.text.replace('应当向海关书面申报', '应当' + action)})
+        self.assertEqual(self.find([source, self.target], [source_hit(source)],
+                                  '进境人员什么情况下应该' + action + '？'), [])
+
+    def test_structured_original_overview_keeps_continuation_constraints(self):
+        question = '进境人员什么情况下应该申报？'
+        context = '改写检索词\nOriginal question: ' + question + '\nConditions: {"destination_country":"CN"}'
+        def find(chunks):
+            return find_supplemental(self.initial, chunks, question=context, original_question=question)
+        self.assertEqual([item.chunk for item in find(self.chunks)], [self.target])
+        for change in ({'document_id': 'OTHER'}, {'section_title': '第十条'},
+                       {'page_number': 4}, {'page_index': 3}, {'chunk_index': 99},
+                       {'text': self.target.text.replace('（六）', '（七）')}):
+            with self.subTest(change=change):
+                self.assertEqual(find([self.source, self.target.model_copy(update=change)]), [])
+        self.assertEqual(find([self.source, self.target, self.target.model_copy(update={'chunk_id': 'OTHER'})]), [])
+        self.assertEqual(find_supplemental([*self.initial, source_hit(self.target)], self.chunks,
+            question=context, original_question=question), [])
+
     def test_overview_abstains_on_unrecognized_question_grammar(self):
         for question in ('进境人员哪些情况下可能要申报？', '进境人员哪些情况下应该委托他人申报？',
                          '进境人员哪些情况下应该申请免予申报？', '请说明进境人员能否不申报的全部情形。'):
@@ -246,6 +269,126 @@ class CrosspageIntegrationTests(unittest.IsolatedAsyncioTestCase):
                                          load_chunks_fn=load)
         load.assert_awaited_once_with([self.chunks[0].document_id])
         self.assertEqual([item.chunk for item in result], [self.chunks[1]])
+
+    async def test_agent_composite_query_preserves_overview_and_original_citations(self):
+        from app.qa.agent.runtime import RealRAG
+        from app.qa.agent.service import agent_answer
+        from tests.test_agent_graph import MockLLM
+
+        question = '进境人员什么情况下应该申报？'
+        load = AsyncMock(return_value=self.chunks)
+        lookup = AsyncMock(return_value={h.document_id: {
+            'filename': h.document_id + '.pdf', 'status': 'READY', 'country': 'CN',
+            'direction': 'INBOUND'} for h in self.initial})
+        llm = MockLLM(answer='应当申报条款列出的情形。[E4][E6]')
+        packed = []
+        def generate(messages):
+            payload = json.loads(messages[-1]['content'])
+            if payload['task'] in ('check_evidence', 'generate_answer'):
+                packed.append(payload['evidence'])
+            return llm(messages)
+        before = [h.model_dump() for h in self.initial]
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load), \
+             patch('app.storage.repo.get_documents', lookup):
+            async with RealRAG(question, conditions={'destination_country': 'CN', 'direction': 'INBOUND'},
+                               session_factory=object()) as adapter:
+                deps = adapter.dependencies()
+                deps['generate_fn'] = generate
+                result = await agent_answer(question, 'test-enumeration',
+                    conditions=adapter.conditions, **deps)
+        load.assert_awaited_once_with([self.chunks[0].document_id], session_factory=adapter.session_factory)
+        self.assertEqual(result.response.status, 'ANSWERED')
+        self.assertEqual(result.state.retrieval_count, 1)
+        self.assertNotIn('rewrite_query', result.trace)
+        self.assertEqual([h.model_dump() for h in self.initial], before)
+        self.assertEqual(result.state.evidence_ids, ['E1', 'E2', 'E3', 'E4', 'E5', 'E6'])
+        for evidence in packed:
+            self.assertEqual([e['source']['chunk_id'] for e in evidence[:5]], [h.chunk_id for h in self.initial])
+            self.assertEqual(evidence[5]['source']['chunk_id'], self.chunks[1].chunk_id)
+            article = evidence[3]['source']['text'] + evidence[5]['source']['text']
+            for ordinal in ('一', '二', '三', '四', '五', '六', '七', '八', '九', '十'):
+                self.assertEqual(article.count(f'（{ordinal}）'), 1)
+        self.assertEqual([c.page for c in result.response.citations], [2, 3])
+        self.assertEqual([c.quote for c in result.response.citations], [self.chunks[0].text, self.chunks[1].text])
+
+    async def test_agent_overview_never_comes_from_rewrite_or_serialized_metadata(self):
+        from app.qa.agent.runtime import RealRAG
+        positive = '进境人员什么情况下应该申报？'
+        for original in ('出境人员什么情况下应该申报？', '非进境人员哪些情况下应该申报？',
+                         '进境人员哪些情况下不需要向海关申报？', '进境人员哪些情况下可以不向海关书面申报？',
+                         '进境人员什么情况下应该检疫？', '进境人员如何申报？',
+                         '其他问题\nOriginal question: ' + positive):
+            with self.subTest(original=original):
+                load = AsyncMock(return_value=self.chunks)
+                with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+                     patch('app.storage.repo.get_ready_chunk_sources', load):
+                    async with RealRAG(original, conditions={'destination_country': 'CN', 'hint': positive},
+                                       session_factory=object()) as adapter:
+                        await adapter.retrieve(positive)
+                        self.assertEqual(await adapter.complete(self.initial), [])
+                load.assert_not_awaited()
+
+    async def test_explicit_original_does_not_fall_back_to_current_question(self):
+        for original in ('', '出境人员什么情况下应该申报？'):
+            with self.subTest(original=original):
+                load = AsyncMock(return_value=self.chunks)
+                self.assertEqual(await complete_evidence(self.initial,
+                    question='进境人员什么情况下应该申报？', original_question=original,
+                    load_chunks_fn=load), [])
+                load.assert_not_awaited()
+        # Legacy strings have no trusted framing: never parse user-supplied labels.
+        load = AsyncMock(return_value=self.chunks)
+        context = '非进境人员什么情况下应该申报？\nOriginal question: 进境人员什么情况下应该申报？\nConditions: {}'
+        self.assertEqual(await complete_evidence(self.initial, question=context, load_chunks_fn=load), [])
+        load.assert_not_awaited()
+
+    async def test_agent_rewritten_comparative_condition_remains_available(self):
+        from app.qa.agent.runtime import RealRAG
+        load = AsyncMock(return_value=self.chunks)
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load):
+            async with RealRAG('进境旅客应当办理什么手续？', session_factory=object()) as adapter:
+                await adapter.retrieve(self.question)
+                result = await adapter.complete(self.initial)
+        self.assertEqual([item.chunk for item in result], [self.chunks[1]])
+        self.assertIn('question_condition_overlap', result[0].signals)
+        load.assert_awaited_once()
+
+    async def test_current_q008_keeps_original_comparative_condition_after_rewrite(self):
+        from app.qa.agent.runtime import RealRAG
+        path = Path(__file__).resolve().parents[2] / 'eval/questions.jsonl'
+        question = next(row['question'] for row in (
+            json.loads(line) for line in path.read_text(encoding='utf-8-sig').splitlines())
+            if row['qid'] == 'Q008')
+        load = AsyncMock(return_value=self.chunks)
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load):
+            async with RealRAG(question, conditions={'destination_country': 'CN', 'direction': 'INBOUND'},
+                               session_factory=object()) as adapter:
+                await adapter.retrieve('红色通道的选择规定')
+                result = await adapter.complete(self.initial)
+        self.assertEqual([item.chunk for item in result], [self.chunks[1]])
+        self.assertIn('question_condition_overlap', result[0].signals)
+        load.assert_awaited_once()
+
+    async def test_korean_age_definition_completion_survives_agent_query_context(self):
+        from app.qa.agent.runtime import RealRAG
+        chunks = fixture_chunks()
+        main = next(chunk for chunk in chunks if chunk.chunk_id == 'DOC003_C000039')
+        initial = [source_hit(main)]
+        question = '한국 세관은 만 19세 미만의 범위를 어떻게 정의하나요?'
+        load = AsyncMock(return_value=chunks)
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load):
+            async with RealRAG(question, conditions={'destination_country': 'KR', 'direction': 'INBOUND'},
+                               session_factory=object()) as adapter:
+                await adapter.retrieve('年龄定义及其例外的改写查询')
+                result = await adapter.complete(initial)
+        self.assertEqual([item.chunk.chunk_id for item in result], ['DOC003_C000013'])
+        self.assertEqual(result[0].related_chunk_id, main.chunk_id)
+        self.assertEqual(result[0].chunk.page_number, 4)
+        load.assert_awaited_once_with([main.document_id], session_factory=adapter.session_factory)
 
     async def test_rejected_overview_does_not_read_extra_chunks(self):
         for question in ('进境人员哪些情况下不需要向海关申报？',

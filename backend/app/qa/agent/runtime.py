@@ -77,7 +77,8 @@ class RealRAG:
         # Retain original applicability constraints even if a rewrite omits a term.
         context = (self.current_query + "\nOriginal question: " + self.original_question
                    + "\nConditions: " + json.dumps(self.conditions, ensure_ascii=False, sort_keys=True))
-        return await complete_evidence(hits, question=context, load_chunks_fn=load)
+        return await complete_evidence(hits, question=context, original_question=self.original_question,
+                                       load_chunks_fn=load)
 
     def dependencies(self):
         return dict(retrieve_fn=self.retrieve, get_documents_fn=self.documents,
