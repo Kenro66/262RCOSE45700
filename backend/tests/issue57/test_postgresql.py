@@ -1,7 +1,7 @@
-"""Real PostgreSQL: migrations, vector scope and concurrent budget reservations.
+"""使用真实 PostgreSQL 验证迁移、向量检索范围和并发预算占用。
 
-Set ISSUE57_TEST_DATABASE_URL to a disposable database named issue57_test*.
-Each test creates its own random schema and removes only that schema afterward.
+将 ISSUE57_TEST_DATABASE_URL 指向名称以 issue57_test 开头的可丢弃测试库。
+每个测试创建独立随机模式，结束后仅删除自己创建的模式。
 """
 import asyncio
 import os
@@ -47,7 +47,7 @@ async def postgres():
         async with engine.begin() as connection:
             for model in (Document, Chunk):
                 await connection.run_sync(model.__table__.create)
-        # 070 establishes #68's original schema; 071 must work twice unchanged.
+        # 070 建立 #68 的原始表结构；071 连续执行两次也应正常完成。
         migrations = Path(__file__).resolve().parents[3] / "storage/migrations"
         async with engine.connect() as connection:
             raw = await connection.get_raw_connection()

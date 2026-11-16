@@ -1,4 +1,4 @@
-"""Catch implicit defaults, source mutation, identity mixing and response regressions."""
+"""检测隐式默认值、来源篡改、标识混用和响应契约回归。"""
 import pytest
 from pydantic import ValidationError
 
@@ -9,6 +9,20 @@ from app.chat.persistent.schemas import PersistentChatResponse
 from app.qa.agent.state import AgentState, CachedEvidence
 from app.qa.citation import Evidence
 from .conftest import hit
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["get_documents_fn", "generate_fn"])
+async def test_single_rejects_invalid_dependencies_before_retrieval(invalid):
+    from unittest.mock import AsyncMock, Mock
+    from app.qa.orchestrator import AnswerError, answer
+
+    retrieve = AsyncMock(return_value=[])
+    dependencies = dict(retrieve_fn=retrieve, get_documents_fn=AsyncMock(), generate_fn=Mock())
+    dependencies[invalid] = object()
+    with pytest.raises(AnswerError, match=invalid):
+        await answer("测试问题", **dependencies)
+    retrieve.assert_not_awaited()
 
 
 @pytest.mark.parametrize("mode", ["single", "agent"])

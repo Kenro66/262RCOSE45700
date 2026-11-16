@@ -1,4 +1,4 @@
-"""Real Agent/Single/store/HTTP flows with deterministic external services."""
+"""使用结果可控的外部服务，验证真实智能体、单次问答、存储和网络接口流程。"""
 import asyncio
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -131,7 +131,7 @@ async def test_agent_success_preserves_evidence_and_never_fallback(execution, se
 async def test_workflow_error_fallback_shares_budget_conditions_and_sources(execution, services, insufficient):
     services.invalid_task = "check_evidence"
     services.final_insufficient = insufficient
-    # This models a previously confirmed condition, already persisted by #68.
+    # 模拟先前已确认、并由 #68 保存的条件。
     async with execution.factory() as session, session.begin():
         question = await session.get(ChatQuestion, execution.qid)
         question.state = {**question.state, "conditions": {"country": "KR"}}
@@ -239,7 +239,7 @@ async def test_fallback_gate_never_dispatches_on_disallowed_input(execution, kin
         error = ExecutionStopped("stop")
     elif kind == "poisoned":
         execution.progress.poisoned = True
-    # gate: freshly reserved state is not yet trusted.
+    # 回退检查：刚占用执行权的状态尚未被确认为可信。
     assert await maybe_fallback(error, execution.data, execution.store, execution.progress, execution.guard) is None
 
 

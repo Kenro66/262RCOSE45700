@@ -1,4 +1,4 @@
--- Apply after 070_chat_persistence.sql. No historical mode/budget is guessed.
+-- 在 070_chat_persistence.sql 之后执行；不推测历史记录的模式或检索预算。
 BEGIN;
 ALTER TABLE chat_questions ADD COLUMN IF NOT EXISTS mode VARCHAR(8);
 ALTER TABLE chat_questions ADD COLUMN IF NOT EXISTS document_ids JSONB;

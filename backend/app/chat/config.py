@@ -1,4 +1,4 @@
-"""Validated deployment settings; no implicit RAG mode or execution deadline."""
+"""校验部署配置；问答模式和执行时限都必须显式设置。"""
 
 from dataclasses import dataclass
 from typing import Literal, Mapping, cast

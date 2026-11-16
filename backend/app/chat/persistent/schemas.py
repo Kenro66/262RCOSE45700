@@ -29,7 +29,7 @@ class PersistentChatResponse(AgentChatResponse):
 
     @model_validator(mode="after")
     def validate_response(self):
-        # Ordinary Single keeps its existing refusal in answer; Agent uses message.
+        # 普通单次问答沿用 answer 字段承载拒答；智能体使用 message 字段。
         if self.status == ChatStatus.INSUFFICIENT_EVIDENCE and self.answer is not None:
             if (not self.question_id.strip() or not self.answer.strip() or self.citations
                     or self.clarification is not None or self.conflict is not None):

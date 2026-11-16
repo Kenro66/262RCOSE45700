@@ -13,7 +13,7 @@ ACTIVE = {"RUNNING", "CANCELLING"}
 
 
 class ExecutionRecord(dict):
-    """Public mapping with a non-serialized, server-only execution identity."""
+    """公开返回字段映射；执行标识仅供服务端使用，不参与序列化。"""
     def __init__(self, values, run_id):
         super().__init__(values)
         self.run_id = run_id

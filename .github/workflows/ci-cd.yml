@@ -41,6 +41,8 @@ jobs:
       EMBEDDING_MODEL: BAAI/bge-m3
       EMBEDDING_BASE_URL: ""
       GENERATION_API_KEY: ""
+      RAG_MODE: agent
+      RAG_EXECUTION_TIMEOUT_SECONDS: "120"
       HF_HUB_DISABLE_TELEMETRY: "1"
       TOKENIZERS_PARALLELISM: "false"
       PYTHONPATH: .
@@ -76,6 +78,7 @@ jobs:
         run: |
           psql -h 127.0.0.1 -U rag -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE issue7_test_ci'
           psql -h 127.0.0.1 -U rag -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE issue9_test_ci'
+          psql -h 127.0.0.1 -U rag -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE issue57_test_ci'
       - name: Python syntax
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: |
@@ -102,6 +105,15 @@ jobs:
         run: |
           python -m pytest tests/test_e2e_postgres.py -ra --junitxml=test-results/postgres.xml \
             --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-postgres.xml
+      - name: Persistent chat and fallback PostgreSQL tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.databases.outcome == 'success' }}
+        env:
+          ISSUE57_TEST_DATABASE_URL: postgresql+asyncpg://rag:ci-disposable-password@127.0.0.1:5432/issue57_test_ci
+          ISSUE70_TEST_POSTGRES_URL: postgresql+asyncpg://rag:ci-disposable-password@127.0.0.1:5432/issue57_test_ci
+        run: |
+          python -m pytest tests/issue57/test_postgresql.py tests/issue70/test_postgresql.py -ra \
+            --junitxml=test-results/chat-postgres.xml \
+            --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-chat-postgres.xml
       - name: Issue 7 PostgreSQL tests (separate Python process)
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.databases.outcome == 'success' }}
         env:
@@ -118,6 +130,7 @@ jobs:
           python ../scripts/check_changed_coverage.py --scope backend --base "$PR_BASE_SHA" --head HEAD \
             --report test-results/coverage-unit.xml \
             --report test-results/coverage-postgres.xml \
+            --report test-results/coverage-chat-postgres.xml \
             --report test-results/coverage-issue7.xml \
             --output test-results/changed-coverage.json
       - name: Publish test summary

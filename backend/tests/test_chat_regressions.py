@@ -1,4 +1,4 @@
-"""Issue9 error contracts and real #12 wiring; no real model is claimed here."""
+"""验证问题 #9 的错误契约与 #12 的真实接线；模型调用使用替身。"""
 import asyncio
 import logging
 import subprocess
@@ -14,6 +14,7 @@ from app.chat import service
 from app.chat.service import SYSTEM_ERROR_MESSAGE, create_chat_router
 from app.contracts import SearchHit
 from app.main import create_app
+from app.chat.runtime import answer_question
 from app.storage.repo import create_processing_document, mark_document_ready
 
 
@@ -104,7 +105,7 @@ async def test_sync_dependency_does_not_block_the_event_loop():
 
 
 @pytest.mark.asyncio
-async def test_default_app_no_documents_no_embedding_or_generation(db, monkeypatch, caplog):
+async def test_single_app_no_documents_no_embedding_or_generation(db, monkeypatch, caplog):
     import app.adapters.embedding as embedding
     import app.qa.orchestrator as orchestrator
 
@@ -113,8 +114,8 @@ async def test_default_app_no_documents_no_embedding_or_generation(db, monkeypat
 
     monkeypatch.setattr(embedding, "embed_texts", forbidden)
     monkeypatch.setattr(orchestrator, "generate_text", forbidden)
-    # No caplog.at_level override: production app config must enable this log.
-    response = await post(create_app())
+    # 不覆盖日志级别，确保应用自身的配置会启用这条日志。
+    response = await post(create_app(answer_fn=answer_question))
     assert response.status_code == 200
     assert response.json() == dict(
         status="NO_READY_DOCUMENTS", answer=None, citations=[], message="当前没有可用文件"
@@ -148,13 +149,13 @@ async def seed_real_wiring(db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_default_wiring_runs_real_retriever_orchestrator_and_db_metadata(db, monkeypatch):
+async def test_single_wiring_runs_real_retriever_orchestrator_and_db_metadata(db, monkeypatch):
     import app.qa.orchestrator as orchestrator
 
     observed = await seed_real_wiring(db, monkeypatch)
     monkeypatch.setattr(orchestrator, "generate_text", lambda messages:
                         '{"answer":"政策允许办理。[E1]","insufficient_evidence":false}')
-    response = await post(create_app(), {"message": "政策是什么？", "session_id": "s1"})
+    response = await post(create_app(answer_fn=answer_question), {"message": "政策是什么？", "session_id": "s1"})
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ANSWERED"
@@ -169,7 +170,7 @@ async def test_real_generation_adapter_bad_address_returns_c5_error(db, monkeypa
     import app.adapters.generation as generation
 
     await seed_real_wiring(db, monkeypatch)
-    # Reserve a port without listening: a real HTTP connection must be refused.
+    # 占用端口但不监听，确保真实网络连接会被拒绝。
     with socket.socket() as closed_port:
         closed_port.bind(("127.0.0.1", 0))
         port = closed_port.getsockname()[1]
@@ -177,7 +178,7 @@ async def test_real_generation_adapter_bad_address_returns_c5_error(db, monkeypa
             "GENERATION_MODEL": "test", "GENERATION_BASE_URL": f"http://127.0.0.1:{port}/v1",
             "GENERATION_TIMEOUT_SECONDS": "1", "GENERATION_API_KEY": "",
         })
-        assert_system_error(await post(create_app()))
+        assert_system_error(await post(create_app(answer_fn=answer_question)))
 
 
 @pytest.mark.asyncio

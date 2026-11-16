@@ -1,4 +1,4 @@
-"""Exercise real guards; only external service and database faults are injected."""
+"""验证真实执行保护逻辑；仅注入外部服务与数据库故障。"""
 import asyncio
 from types import SimpleNamespace
 
@@ -131,7 +131,7 @@ async def test_malformed_completion_cannot_become_trusted_evidence(execution, re
 
 
 async def test_valid_completion_is_saved_before_later_stop(execution):
-    # SupplementalEvidence is the actual service boundary type, not a partial mock.
+    # 使用服务实际返回的 SupplementalEvidence 类型，避免使用不完整的替身。
     from app.contracts import Chunk
     supplemental = SupplementalEvidence(chunk=Chunk(chunk_id="supplement", document_id="d1", page_number=1,
         text="补充原文", language="zh", chunk_index=1, page_index=0, section_title=None,

@@ -1,10 +1,10 @@
-"""Run from a complete project after applying the issue57 overlay.
+"""将 issue57 覆盖包放入完整项目后运行本脚本。
 
-Install the project dependencies and tests/issue57/requirements-test.txt first.
-Usage: python tests/issue57/run_coverage.py --postgres-url <disposable test URL>
-The database name must start with issue57_test; tests use temporary schemas.
-100% means changed executable Python lines, not all historical project code.
-Branch coverage and whole-file coverage are reported separately, without exclusions.
+先安装项目依赖和 tests/issue57/requirements-test.txt 中的测试依赖。
+用法：python tests/issue57/run_coverage.py --postgres-url <可丢弃测试库地址>
+数据库名必须以 issue57_test 开头；测试使用临时模式。
+百分之百覆盖率指本次修改的可执行代码行，不代表所有历史代码。
+分支覆盖率和完整文件覆盖率另行报告，不排除未覆盖代码。
 """
 import argparse
 import hashlib
@@ -50,7 +50,7 @@ def main():
         RAG_EXECUTION_TIMEOUT_SECONDS="120")
     if options.postgres_url:
         environment["ISSUE57_TEST_DATABASE_URL"] = options.postgres_url
-    # The selected suite has its own explicit PostgreSQL opt-in; never inherit unrelated DB opt-ins.
+    # 本测试集单独显式启用 PostgreSQL，不继承其他测试库的启用配置。
     for key in ("ISSUE7_TEST_DATABASE_URL", "ISSUE9_TEST_DATABASE_URL", "ISSUE9_ALLOW_DATABASE_RESET"):
         environment.pop(key, None)
     if not options.report_only:
@@ -65,7 +65,7 @@ def main():
     import coverage
     measured = coverage.Coverage(data_file=str(backend / ".coverage"))
     measured.load()
-    # No pragma or custom exclude patterns are used to inflate the result.
+    # 不通过覆盖率忽略指令或自定义排除规则提高结果。
     measured.set_option("report:exclude_lines", [])
     measured.json_report(outfile=str(report_dir / "coverage.json"))
     raw = json.loads((report_dir / "coverage.json").read_text())

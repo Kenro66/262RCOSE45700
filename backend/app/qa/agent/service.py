@@ -1,4 +1,4 @@
-"""Async internal service. Backend owns persistence, HTTP integration and fallback."""
+"""异步内部服务；持久化、网络接口接入和回退由后端负责。"""
 
 import asyncio
 import json
@@ -36,12 +36,12 @@ async def agent_answer(
     generate_fn: Generator | None = None, complete_evidence_fn: Completion | None = None,
     on_progress=None, preserve_evidence_ids: bool = False,
 ) -> AgentResult:
-    """Execute with injected mocks/services; no implicit external dependencies.
+    """使用显式注入的替身或服务执行，不隐式调用外部依赖。
 
-    Supply the original question and the same session/question IDs when resuming.
-    Restore a complete server snapshot dict or AgentState. Full sources, not E IDs,
-    are cached; document readiness is rechecked before using them on a new request.
-    Technical failures raise AgentError with state/trace, never trigger fallback here.
+    恢复执行时传入原始问题及相同的会话、问题标识。
+    使用完整服务端快照字典或 AgentState 恢复状态。缓存完整来源，
+    而非只有证据编号；新请求使用缓存前重新检查文档是否就绪。
+    技术故障抛出携带状态和执行轨迹的 AgentError，此处不触发回退。
     """
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be nonempty")
@@ -63,7 +63,7 @@ async def agent_answer(
     if complete_evidence_fn is not None and not callable(complete_evidence_fn):
         raise AgentError("complete_evidence_fn must be callable")
     merged = {**saved.conditions, **(conditions or {})}
-    # Conditions are transported as JSON and included in the first retrieval, too.
+    # 条件按 JSON 传递，首次检索也必须包含这些条件。
     query = question + ("\nConditions: " + json.dumps(merged, ensure_ascii=False, sort_keys=True) if merged else "")
     initial: GraphState = dict(
         question=question, session_id=session_id, question_id=question_id or f"q_{uuid4().hex}",
@@ -98,8 +98,8 @@ async def agent_answer(
                     if metadata is not None and DocumentStatus(metadata.get("status")) == DocumentStatus.READY:
                         raise AgentError("Resolver lost a conflict citation from a READY source",
                                          error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
-                # Missing/non-READY documents are unavailable policy evidence, not
-                # a tool failure. Never expose a one-sided conflict or partial answer.
+                # 文档缺失或尚未就绪表示政策证据不可用，不属于工具故障。
+                # 不能返回只有单方证据的冲突或不完整答案。
                 final = {**final, "status": ChatStatus.INSUFFICIENT_EVIDENCE,
                          "conflict": None, "answer": None, "clarification": None}
                 citations = []
@@ -112,7 +112,7 @@ async def agent_answer(
         )
         return AgentResult(response=response, state=snapshot(final, nodes.cached_evidence), trace=final["trace"])
     except NodeCancelledError as exc:
-        # LangGraph wraps cancellation raised by a dependency inside a node.
+        # LangGraph 会包装节点内部依赖抛出的取消异常。
         raise asyncio.CancelledError() from exc
     except Exception as exc:
         error = exc if isinstance(exc, AgentError) else AgentError(

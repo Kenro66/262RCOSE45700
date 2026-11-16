@@ -1,4 +1,4 @@
-"""Boundary cases that would otherwise silently lose state or use invalid sources."""
+"""验证可能导致状态静默丢失或误用无效来源的边界情况。"""
 import asyncio
 import json
 from types import SimpleNamespace
@@ -95,7 +95,7 @@ async def test_changed_source_with_same_chunk_id_is_rejected_by_node_checkpoint(
     async def unused(*args):
         raise AssertionError("unexpected dependency")
     nodes = Nodes(Dependencies(unused, unused, unused), cached_evidence=[Evidence("E1", hit())])
-    # A changed source arrives at a node boundary under an existing stable ID.
+    # 节点边界收到沿用已有稳定编号、但内容被修改的来源。
     state = {"trace": [], "status": "ANSWERED", "evidence": [Evidence("E1", hit(text="替换原文"))]}
     with pytest.raises(AgentError) as error:
         await nodes.tracked("finalize")(state)

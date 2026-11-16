@@ -1,4 +1,4 @@
-"""Single retrieval RAG with injected backend dependencies and validated citations."""
+"""单次检索问答流程，使用注入的后端依赖并校验引用。"""
 
 import inspect
 import asyncio
@@ -16,7 +16,7 @@ from .prompts import build_messages, detect_language
 
 
 class AnswerError(RuntimeError):
-    """Missing integration dependencies or malformed model output."""
+    """集成依赖缺失或模型输出格式错误。"""
 
 
 Retrieval = Callable[[str], Awaitable[Sequence[SearchHit | dict[str, Any]]]]
@@ -74,7 +74,7 @@ async def _complete_sources(initial_hits, complete_evidence_fn, execution_contex
 async def answer(question: str, session_id: str | None = None, *, retrieve_fn: Retrieval | None = None,
                  get_documents_fn: DocumentLookup | None = None, generate_fn: Generator | None = None,
                  complete_evidence_fn: Completion | None = None, execution_context=None) -> ChatResponse:
-    """Await backend retrieval/metadata; offload the existing synchronous generator."""
+    """异步等待后端检索和元数据读取，将现有同步生成调用移至工作线程。"""
     language = detect_language(question)
     if session_id is not None and (not isinstance(session_id, str) or not session_id.strip()):
         raise ValueError("session_id must be a nonempty string or None")
@@ -94,7 +94,7 @@ async def answer(question: str, session_id: str | None = None, *, retrieve_fn: R
         return _insufficient(language)
     document_ids = list(dict.fromkeys(item.hit.document_id for item in evidence))
     documents = await cast(DocumentLookup, get_documents_fn)(document_ids)
-    # Validate source metadata before sending any evidence to the model.
+    # 向模型发送任何证据前，先校验来源元数据。
     markers = "".join(f"[{item.evidence_id}]" for item in evidence)
     _, sources = resolve_citations(markers, evidence, documents)
     usable = {source.evidence_id for source in sources}

@@ -1,4 +1,4 @@
-"""Deterministic full-graph tests: no models, embeddings or business database."""
+"""结果可复现的完整工作流测试，不调用模型、嵌入服务或业务数据库。"""
 
 import asyncio
 import json
@@ -36,7 +36,7 @@ def document(index=1, country="CN", direction="INBOUND", status="READY"):
 
 
 class MockLLM:
-    """Uses the same messages -> JSON text signature as the existing generator."""
+    """沿用现有生成器接收消息并返回 JSON 文本的接口形式。"""
 
     def __init__(self, *, sufficient_at=1, missing_pre=False, missing_post=False,
                  conflict=False, answer=None, overrides=None):
@@ -84,7 +84,7 @@ def no_network(monkeypatch):
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
     original_connect = socket.socket.connect
     def connect(sock, address):
-        # Windows asyncio creates its internal wakeup socket pair on loopback.
+        # Windows 异步事件循环通过本机回环套接字对实现内部唤醒。
         if isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"):
             return original_connect(sock, address)
         raise AssertionError("Agent Mock tests must not connect to the network")

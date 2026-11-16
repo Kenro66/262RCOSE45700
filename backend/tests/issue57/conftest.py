@@ -1,4 +1,4 @@
-"""Isolated fixtures: never read or mutate the deployment database."""
+"""隔离测试夹具：不读取或修改部署环境的数据库。"""
 import asyncio
 from types import SimpleNamespace
 

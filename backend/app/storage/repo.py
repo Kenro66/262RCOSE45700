@@ -329,7 +329,7 @@ async def get_ready_chunk_sources(
     document_ids: list[str],
     session_factory: SessionMaker = SessionFactory,
 ) -> list[ContractChunk]:
-    """Read original C2 metadata/text only; never load embeddings or non-READY files."""
+    """仅读取原始文本块的元数据和正文，不加载向量或尚未就绪的文件。"""
     if not document_ids:
         return []
     columns = [getattr(Chunk, name) for name in ContractChunk.model_fields]

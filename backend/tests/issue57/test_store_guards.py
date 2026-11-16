@@ -1,4 +1,4 @@
-"""Real SQL tests for durable budgets, replay, stale writers and stop precedence."""
+"""通过真实数据库操作验证持久化预算、重放、过期写入和停止优先级。"""
 from datetime import datetime, timedelta, timezone
 import json
 

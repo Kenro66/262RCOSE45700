@@ -1,6 +1,6 @@
-"""Fixed workflow nodes with injected RAG callables and structured decisions.
+"""固定工作流节点，使用注入的检索问答函数和结构化决策。
 
-No production model, embedding or database default is invoked here.
+此处不隐式调用生产模型、嵌入服务或数据库。
 """
 
 import asyncio
@@ -38,10 +38,10 @@ class AgentErrorType(str, Enum):
 
 
 class AgentError(RuntimeError):
-    """Technical failure; callers may apply Single RAG fallback to this exception.
+    """技术故障；调用方可根据此异常判断是否执行单次问答回退。
 
-    Business outcomes such as insufficient evidence never raise this exception.
-    On workflow failure service attaches the latest budget/source snapshot.
+    证据不足等业务结果不会抛出此异常。
+    工作流失败时，服务会附上最新检索预算和来源快照。
     """
 
     def __init__(self, message: str, *, failed_node: str | None = None,
@@ -58,16 +58,16 @@ class AgentError(RuntimeError):
 
     @property
     def fallback_eligible(self) -> bool:
-        # Eligibility is not a decision to dispatch fallback or reset its budget.
+        # 具备回退资格不等于立即执行回退，更不能据此重置预算。
         return self.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR
 
 
 class _DecisionValidationError(ValueError):
-    """Successful generation returned invalid Agent-specific JSON or Schema."""
+    """生成调用成功，但返回内容不符合智能体要求的 JSON 格式或结构。"""
 
 
 def classify_error(exc: Exception) -> AgentErrorType:
-    """Only typed evidence of origin; never infer from node names or messages."""
+    """仅依据明确的异常类型判断来源，不根据节点名称或错误消息推测。"""
     if isinstance(exc, GenerationError):
         return AgentErrorType.SHARED_GENERATION_ERROR
     if isinstance(exc, RetrievalError):
@@ -78,7 +78,7 @@ def classify_error(exc: Exception) -> AgentErrorType:
 
 
 async def _retrieval_dependency(fn, *args):
-    """An exception during an actual injected retrieval/metadata call has known origin."""
+    """在实际注入的检索或元数据调用中发生的异常，来源可以确认。"""
     try:
         return await fn(*args)
     except (asyncio.CancelledError, NodeCancelledError):
@@ -100,7 +100,7 @@ def unique_fields(pairs):
 
 
 def age_definition_gap(question: str, decision: EvidenceDecision, evidence=()) -> bool:
-    """Use trusted source text, never a model's transcription, to protect age categories."""
+    """使用可信原文校验年龄分类，不采用模型转述。"""
     ages = re.findall(r"(?:만\s*)?(\d+)\s*세\s*(?:미만|이하|이상|초과)", question)
     ages += re.findall(r"(?:未满|不满|满|低于|超过)?\s*(\d+)\s*(?:周岁|岁)(?:以下|以上|以内|以外)?", question)
     if not ages:
@@ -121,12 +121,12 @@ def age_definition_gap(question: str, decision: EvidenceDecision, evidence=()) -
 
 
 def proof_text(text: str) -> str:
-    """Normalize query identity only; public citations retain their original text."""
+    """只规范化查询标识；对外引用保留原始文本。"""
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC",text)).casefold()
 
 
 def trusted_support(decision: EvidenceDecision, evidence: list[Evidence]) -> dict:
-    """Resolve canonical chunk IDs to the original immutable source, not LLM quotes."""
+    """根据规范文本块标识定位不可变的原始来源，不采用模型生成的引文。"""
     sources = {e.hit.chunk_id: e for e in evidence}
     supports = [*decision.core_support]
     for coverage in (decision.definitions,decision.exceptions,decision.applicability,decision.complete_answer):
@@ -219,8 +219,8 @@ class Nodes:
             "do not invent sources or policy facts. Schema: " + json.dumps(schema.model_json_schema()))},
             {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]
         if task == "generate_answer":
-            # Reuse the established multilingual citation/definition/exception rules.
-            # Keep the task payload shape so the same injected generator handles all nodes.
+            # 复用现有多语言引用、定义和例外规则。
+            # 保持任务数据结构，使同一个注入生成器可以处理所有节点。
             policy = build_messages(state["question"], detect_language(state["question"]), state["evidence"])[0]["content"]
             messages[0]["content"] += "\n" + policy
             messages[0]["content"] += (
@@ -258,13 +258,13 @@ class Nodes:
         try:
             return schema.model_validate(json.loads(raw, object_pairs_hook=unique_fields))
         except (ValueError, TypeError) as exc:
-            # Remains a ValueError so the existing one-answer-repair policy is unchanged.
+            # 仍使用 ValueError，保持现有答案修复一次的规则不变。
             raise _DecisionValidationError("Agent decision JSON/Schema validation failed") from exc
 
     async def check_conditions(self, state, *, after_retrieval=False):
         decision = await self.decide("check_applicability" if after_retrieval else "check_conditions",
                                      state, ConditionsDecision)
-        # A known value cannot be requested again, even if the mock/model asks for it.
+        # 即使替身或模型再次要求，也不能重复追问已知条件。
         missing_by_field = {q.field: q for q in decision.missing_conditions
                             if state["conditions"].get(q.field) in (None, "", [])}
         missing = list(missing_by_field.values())
@@ -285,7 +285,7 @@ class Nodes:
                 "status": ChatStatus.NEEDS_CLARIFICATION}
 
     async def retrieve(self, state: GraphState):
-        # Guard the side effect itself, as well as the conditional edge before it.
+        # 除了前置条件分支，还要在实际产生副作用前执行检查。
         if state["retrieval_count"] >= 3:
             return {"status": ChatStatus.INSUFFICIENT_EVIDENCE}
         if any(proof_text(q)==proof_text(state["current_query"]) for q in state.get("seen_queries",[])):
@@ -317,14 +317,14 @@ class Nodes:
     async def check_evidence(self, state: GraphState):
         ids = list(dict.fromkeys(e.hit.document_id for e in state["evidence"]))
         documents = await _retrieval_dependency(self.deps.documents, ids) if ids else {}
-        # Revalidate READY status and metadata on resume, rather than trusting cached metadata.
+        # 恢复执行时重新校验就绪状态和元数据，不能直接信任缓存。
         documents = {k: v.model_dump(mode="json") if isinstance(v, DocumentRecord) else v
                      for k, v in documents.items()}
         markers = "".join(f"[{e.evidence_id}]" for e in state["evidence"])
         _, citations = resolve_citations(markers, state["evidence"], documents)
         usable = {c.evidence_id for c in citations}
         evidence = [e for e in state["evidence"] if e.evidence_id in usable]
-        # Rebuild request-local IDs after filtering stale sources.
+        # 过滤失效来源后，重建本次请求使用的证据编号。
         if self.cached_evidence is None:
             evidence = [Evidence(f"E{i}", e.hit) for i, e in enumerate(evidence, 1)]
         sufficient = False
@@ -381,7 +381,7 @@ class Nodes:
                         d in ("INBOUND", "OUTBOUND") and d != direction for d in (da, db)):
                     return {}
                 if ca and cb and ca != cb:
-                    return {}  # Different national policies are not a true conflict.
+                    return {}  # 不同国家的政策差异不构成真正的冲突。
                 if da in ("INBOUND", "OUTBOUND") and db in ("INBOUND", "OUTBOUND") and da != db:
                     return {}
                 if ca not in ("CN", "KR") or cb not in ("CN", "KR") or da not in directions or db not in directions:

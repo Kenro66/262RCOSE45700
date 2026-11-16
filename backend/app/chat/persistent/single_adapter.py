@@ -1,4 +1,4 @@
-"""Bind a single-retrieval fallback without changing normal Single calls."""
+"""绑定只检索一次的回退流程，保持普通单次问答的调用逻辑不变。"""
 
 from app.contracts import ChatStatus
 from app.qa.agent.runtime import RealRAG

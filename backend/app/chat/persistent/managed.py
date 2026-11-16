@@ -1,4 +1,4 @@
-"""Managed mode routing, progress and guarded fallback behind the existing API."""
+"""在现有接口内部完成模式路由、进度保存和受控回退。"""
 
 import logging
 
@@ -93,7 +93,7 @@ async def execute_managed(runner, data, stop_event):
         await store.checkpoint(qid, runner.worker_id, final_state, result.response.clarification, execution_key=run_id)
         await finish("SUCCEEDED", result.response, reliable=True)
     except Exception as error:
-        # Cancellation/timeout outrank error classification, even when a service wrapped it.
+        # 取消和超时优先于错误分类，即使服务对异常做了包装也一样。
         try:
             await guard.check(allow_stopped=True)
             candidate = getattr(error, "state", None) or progress.state

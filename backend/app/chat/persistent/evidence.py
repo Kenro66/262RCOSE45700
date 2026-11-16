@@ -1,4 +1,4 @@
-"""Canonical source cache and exact evidence-token mappings for managed runs."""
+"""受控执行使用的原始来源缓存和精确证据编号映射。"""
 
 import re
 

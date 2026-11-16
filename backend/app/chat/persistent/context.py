@@ -1,4 +1,4 @@
-"""Internal progress/dispatch controls. Nothing in this module is an HTTP field."""
+"""内部进度与调用控制；本模块不定义对外接口字段。"""
 
 import asyncio
 import inspect
@@ -12,7 +12,7 @@ from .evidence import merge_sources
 
 
 class ExecutionStopped(AgentError):
-    """A control decision, never a fallback-eligible workflow error."""
+    """执行控制信号，不属于允许回退的工作流错误。"""
     execution_control = True
 
 
@@ -34,7 +34,7 @@ class RunProgress:
         if (saved.question, saved.session_id, saved.question_id, saved.conditions) != (
                 self.state.question, self.state.session_id, self.state.question_id, self.state.conditions):
             raise ValueError("Progress does not belong to this execution")
-        # A source returned before a later completion failure still belongs in the cache.
+        # 后续证据补全失败时，先前已返回的原始来源仍应保留在缓存中。
         saved = merge_sources(saved, self.state.evidence)
         self.state = merge_sources(saved, self.sources)
         return self.state
@@ -77,7 +77,7 @@ class ExecutionGuard:
             if on_result is not None:
                 on_result(value)
         except asyncio.CancelledError:
-            # Do not acknowledge cancellation while an external thread/coroutine still runs.
+            # 外部线程或协程仍在运行时，不能确认取消已完成。
             try:
                 await asyncio.shield(operation)
             finally:
