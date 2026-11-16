@@ -3,6 +3,8 @@
 import json
 from collections.abc import Callable
 
+from sqlalchemy.ext.asyncio import AsyncEngine
+
 from ...adapters.config import settings
 from ...adapters.generation import generate_text
 from ..evidence_completion import complete_evidence
@@ -26,7 +28,7 @@ class RealRAG:
         self.embedder = embedder
         self.top_k = top_k
         self.current_query: str | None = None
-        self.engine = None
+        self.engine: AsyncEngine | None = None
 
     async def __aenter__(self):
         if self.session_factory is None:

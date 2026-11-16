@@ -17,7 +17,6 @@ import {
 
 type Page = 'documents' | 'chat'
 type Status = 'Ready' | 'Processing' | 'Failed'
-type ChatResponse = ReturnType<typeof convertC5ChatResponse>
 type C5Citation = { evidence_id: string; filename: string; page: number; quote: string; display_id?: number }
 type DocumentItem = Omit<C1Document, 'status'> & {
   id: number
@@ -153,7 +152,7 @@ function StatusBadge({ status }: { status: Status }) {
 
 function Disclaimer() {
   const { t } = useI18n()
-  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>　 {t('disclaimer.text')}</span></div>
+  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>{'\u3000 '}{t('disclaimer.text')}</span></div>
 }
 
 function LanguageSwitcher() {
@@ -662,6 +661,84 @@ function CitationPanel({
   )
 }
 
+function MessageAuthor({ message }: { message: Message }) {
+  const { locale, t } = useI18n()
+  const isAssistant = message.role === 'assistant'
+  const showDocumentLabel = isAssistant
+    && message.responseStatus !== 'NO_READY_DOCUMENTS'
+    && message.responseStatus !== 'SYSTEM_ERROR'
+
+  return (
+    <div className="message-author">
+      {isAssistant ? 'Policy AI' : t('chat.consultant')}
+      {showDocumentLabel && <span>{mockChatEnabled ? previewMessages[locale].based : t('chat.basedOnDocuments')}</span>}
+    </div>
+  )
+}
+
+function ChatWelcome({ visible, readyDocumentCount, loading, onSubmit, onOpenDocuments }: {
+  visible: boolean
+  readyDocumentCount: number
+  loading: boolean
+  onSubmit: (question: string) => void
+  onOpenDocuments: () => void
+}) {
+  const { t } = useI18n()
+  if (!visible) return null
+  const exampleQuestions = [
+    t('chat.example1'),
+    t('chat.example2'),
+    t('chat.example3'),
+    t('chat.example4'),
+  ]
+  return (
+    <div className="chat-welcome">
+      <div className="welcome-mark"><Icon name="spark" size={23}/></div>
+      <h2>{t('chat.welcomeTitle')}</h2>
+      <p>{t('chat.welcomeBody')}</p>
+      <div className="example-questions">
+          {exampleQuestions.map((question) => (
+            <Button variant="ghost" className="example-question" key={question} onClick={() => onSubmit(question)} disabled={loading}>
+              <span>{question}</span><Icon name="chevron" size={14}/>
+            </Button>
+          ))}
+      </div>
+      {readyDocumentCount === 0 && !mockChatEnabled && (
+        <div className="no-documents-notice">
+          <span className="notice-icon"><Icon name="files" size={18}/></span>
+          <div><strong>{t('chat.noDocumentsTitle')}</strong><p>{t('chat.noDocumentsBody')}</p></div>
+          <Button variant="default" onClick={onOpenDocuments}>{t('chat.goDocuments')}</Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MessageAvatar({ role }: { role: Message['role'] }) {
+  const { t } = useI18n()
+  if (role === 'assistant') return <div className="ai-avatar"><Icon name="spark" size={17}/></div>
+  return <div className="user-avatar">{t('chat.userAvatar')}</div>
+}
+
+function MessageText({ message, fallback }: { message: Message; fallback: { body: string } | null }) {
+  const body = message.role === 'assistant'
+    ? (message.body || fallback?.body || '').replace(/\[E\d+\]/gi, '').trim()
+    : message.body
+  return <div className="message-text">{body}</div>
+}
+
+function ChatMockBanner() {
+  const { locale } = useI18n()
+  if (!mockChatEnabled) return null
+  return <div className="chat-mock-banner">{previewMessages[locale].preview}<div className="chat-mock-links">
+          <a href="?mock=1&scenario=clarify">{previewMessages[locale].clarify}</a>
+          <a href="?mock=1&scenario=multi">{previewMessages[locale].multi}</a>
+          <a href="?mock=1&scenario=conflict">{previewMessages[locale].conflict}</a>
+          <a href="?mock=1&scenario=clarify&fail-once=1">{previewMessages[locale].failOnce}</a>
+          <a href="?mock=1&scenario=invalid">{previewMessages[locale].malformed}</a>
+        </div></div>
+}
+
 function ChatPage({
   conversation,
   visible,
@@ -677,7 +754,7 @@ function ChatPage({
   readyDocumentCount: number
   onOpenDocuments: () => void
 }) {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [restoreError, setRestoreError] = useState(false)
@@ -690,12 +767,6 @@ function ChatPage({
   const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const messages = conversation?.messages ?? []
-  const exampleQuestions = [
-    t('chat.example1'),
-    t('chat.example2'),
-    t('chat.example3'),
-    t('chat.example4'),
-  ]
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
   const citationMessage = messages.find((message) => message.id === citationMessageId && message.role === 'assistant') ?? latestAssistantMessage
   const citationPanelStatus = citationMessage?.responseStatus
@@ -866,36 +937,10 @@ const sendMessage = () => submitQuestion(input)
           <div><div className="title-row"><h1>Chat</h1><span className="online-dot"/><span className="online-text">{t('chat.ready')}</span></div><p>{t('chat.subtitle', { count: readyDocumentCount, title: conversation ? (conversation.isUntitled ? t('history.untitled') : conversation.title) : t('chat.current') })}</p></div>
           <div className="header-actions"><Button variant="default" onClick={onNewConversation}>{t('history.new')}</Button><LanguageSwitcher/></div>
         </header>
-        {mockChatEnabled && <div className="chat-mock-banner">{previewMessages[locale].preview}<div className="chat-mock-links">
-          <a href="?mock=1&scenario=clarify">{previewMessages[locale].clarify}</a>
-          <a href="?mock=1&scenario=multi">{previewMessages[locale].multi}</a>
-          <a href="?mock=1&scenario=conflict">{previewMessages[locale].conflict}</a>
-          <a href="?mock=1&scenario=clarify&fail-once=1">{previewMessages[locale].failOnce}</a>
-          <a href="?mock=1&scenario=invalid">{previewMessages[locale].malformed}</a>
-        </div></div>}
+        <ChatMockBanner/>
         <section className="conversation">
           <div className="conversation-inner">
-            {messages.length === 0 && (
-              <div className="chat-welcome">
-                <div className="welcome-mark"><Icon name="spark" size={23}/></div>
-                <h2>{t('chat.welcomeTitle')}</h2>
-                <p>{t('chat.welcomeBody')}</p>
-                <div className="example-questions">
-                    {exampleQuestions.map((question) => (
-                      <Button variant="ghost" className="example-question" key={question} onClick={() => submitQuestion(question)} disabled={loading}>
-                        <span>{question}</span><Icon name="chevron" size={14}/>
-                      </Button>
-                    ))}
-                </div>
-                {readyDocumentCount === 0 && !mockChatEnabled && (
-                  <div className="no-documents-notice">
-                    <span className="notice-icon"><Icon name="files" size={18}/></span>
-                    <div><strong>{t('chat.noDocumentsTitle')}</strong><p>{t('chat.noDocumentsBody')}</p></div>
-                    <Button variant="default" onClick={onOpenDocuments}>{t('chat.goDocuments')}</Button>
-                  </div>
-                )}
-              </div>
-            )}
+            <ChatWelcome visible={messages.length === 0} readyDocumentCount={readyDocumentCount} loading={loading} onSubmit={submitQuestion} onOpenDocuments={onOpenDocuments}/>
             {messages.map((message) => {
               const responseState = message.responseStatus && message.responseStatus in automaticResponseContent
                 ? automaticResponseContent[message.responseStatus as keyof typeof automaticResponseContent]
@@ -904,14 +949,12 @@ const sendMessage = () => submitQuestion(input)
               const stateCode = responseState ? message.responseStatus : null
               return (
                 <div className={`message-row ${message.role}`} key={message.id}>
-                  <div className={message.role === 'assistant' ? 'ai-avatar' : 'user-avatar'}>{message.role === 'assistant' ? <Icon name="spark" size={17}/> : t('chat.userAvatar')}</div>
+                  <MessageAvatar role={message.role}/>
                   <div className="message-wrap">
-                    <div className="message-author">{message.role === 'assistant' ? 'Policy AI' : t('chat.consultant')}{message.role === 'assistant' && message.responseStatus !== 'NO_READY_DOCUMENTS' && message.responseStatus !== 'SYSTEM_ERROR' && <span>{mockChatEnabled ? previewMessages[locale].based : t('chat.basedOnDocuments')}</span>}</div>
+                    <MessageAuthor message={message}/>
                     <div className={`message-bubble ${renderedState && stateCode ? `exception ${stateCode.toLowerCase()}` : ''}`}>
                       {renderedState && stateCode && <div className="exception-title"><span className="exception-symbol"><Icon name={stateCode === 'SYSTEM_ERROR' ? 'warning' : 'info'} size={17}/></span><strong>{renderedState.title}</strong><span className="exception-code">{stateCode}</span></div>}
-                      <div className="message-text">{message.role === 'assistant'
-                        ? (message.body || renderedState?.body || '').replace(/\[E\d+\]/gi, '').trim()
-                        : message.body}</div>
+                      <MessageText message={message} fallback={renderedState}/>
                       {message.responseStatus === 'NEEDS_CLARIFICATION' && message.clarification && <ClarificationForm
                         clarification={message.clarification} resolved={message.followupResolved} busy={loading || restoring || !!message.executionLocked}
                         values={message.followupValues}

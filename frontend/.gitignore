@@ -1,4 +1,6 @@
 node_modules/
+coverage/
+test-results/
 dist/
 build/
 .cache/
@@ -13,9 +15,7 @@ logs/
 .tmp-*
 /.figma/design-context/
 
-# Platform-managed agentplat state, not project source. In the
-# client-initiated single-repo workspace layout (make's `Path: "."` spec) the
-# repo root IS the workspace root, so these land inside this repo rather than
-# beside it.
+# 平台管理的运行状态不属于项目源码。
+# 单仓库工作区的根目录同时也是项目根目录，因此这些文件出现在仓库内。
 /.plugins/
 /.opencode-skills/

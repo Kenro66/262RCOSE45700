@@ -4,6 +4,16 @@ import { conflictGroups, validConditions, type AgentResponse, type Clarification
 import { previewMessages } from './messages'
 import './agent-messages.css'
 
+function ClarificationStatus({ resolved, isCancelling, stage }: {
+  resolved?: boolean
+  isCancelling: boolean
+  stage: 'pending' | 'sending' | 'error' | 'cancelled'
+}) {
+  const { locale } = useI18n()
+  const m = previewMessages[locale]
+  return <p className="agent-hint" role="status" aria-live="polite">{resolved ? `✓ ${m.submitted}` : isCancelling ? (locale === 'ko-KR' ? '취소 중' : '正在取消') : stage === 'sending' ? m.sending : stage === 'cancelled' ? m.cancelled : ''}</p>
+}
+
 export function ClarificationForm({ clarification, resolved, busy, values = {}, onChange, onSubmit, onCancel }: {
   clarification: Clarification; resolved?: boolean; busy: boolean
   values?: Record<string, string>
@@ -61,7 +71,7 @@ export function ClarificationForm({ clarification, resolved, busy, values = {}, 
             <option value="" disabled>{m.choose}</option>{question.options.map(value => <option key={value} value={value}>{value === 'CN' ? m.cn : value === 'KR' ? m.kr : value}</option>)}
           </select> : <input required maxLength={500} placeholder={m.placeholder} value={values[question.field] ?? ''} onChange={event => onChange(question.field, event.target.value)}/>}</label>)}
       </fieldset>
-      <p className="agent-hint" role="status" aria-live="polite">{resolved ? `✓ ${m.submitted}` : isCancelling ? (locale === 'ko-KR' ? '취소 중' : '正在取消') : stage === 'sending' ? m.sending : stage === 'cancelled' ? m.cancelled : ''}</p>
+      <ClarificationStatus resolved={resolved} isCancelling={isCancelling} stage={stage}/>
       {cancelError && !resolved && <p role="alert" className="agent-error">{locale === 'ko-KR' ? '취소를 확인하지 못했습니다.' : '未能确认取消。'}</p>}
       {stage === 'error' && !resolved && <p role="alert" className="agent-error">{m.failed}</p>}
       {!resolved && <div className="agent-actions"><button className="button button-primary" type="submit" disabled={busy || isCancelling || cancelError || !validConditions(clarification.questions, values)}>{stage === 'error' ? m.retry : m.submit}</button>{(stage === 'sending' || cancelError) && <button className="button button-ghost" type="button" disabled={isCancelling} onClick={() => void cancel()}>{m.cancel}</button>}</div>}
