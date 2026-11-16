@@ -203,7 +203,7 @@ function StatusBadge({ status }: { status: Status }) {
 
 function Disclaimer() {
   const { t } = useI18n()
-  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>　 {t('disclaimer.text')}</span></div>
+  return <div className="disclaimer"><Icon name="warning" size={16}/><span><strong>{t('disclaimer.title')}</strong>{'\u3000 '}{t('disclaimer.text')}</span></div>
 }
 
 function LanguageSwitcher() {
@@ -694,6 +694,21 @@ function CitationPanel({
   )
 }
 
+function MessageAuthor({ message }: { message: Message }) {
+  const { t } = useI18n()
+  const isAssistant = message.role === 'assistant'
+  const showDocumentLabel = isAssistant
+    && message.responseStatus !== 'NO_READY_DOCUMENTS'
+    && message.responseStatus !== 'SYSTEM_ERROR'
+
+  return (
+    <div className="message-author">
+      {isAssistant ? 'Policy AI' : t('chat.consultant')}
+      {showDocumentLabel && <span>{t('chat.basedOnDocuments')}</span>}
+    </div>
+  )
+}
+
 function ChatPage({
   conversation,
   onNewConversation,
@@ -859,7 +874,7 @@ const sendMessage = () => submitQuestion(input)
                 <div className={`message-row ${message.role}`} key={message.id}>
                   <div className={message.role === 'assistant' ? 'ai-avatar' : 'user-avatar'}>{message.role === 'assistant' ? <Icon name="spark" size={17}/> : t('chat.userAvatar')}</div>
                   <div className="message-wrap">
-                    <div className="message-author">{message.role === 'assistant' ? 'Policy AI' : t('chat.consultant')}{message.role === 'assistant' && message.responseStatus !== 'NO_READY_DOCUMENTS' && message.responseStatus !== 'SYSTEM_ERROR' && <span>{t('chat.basedOnDocuments')}</span>}</div>
+                    <MessageAuthor message={message}/>
                     <div className={`message-bubble ${renderedState && stateCode ? `exception ${stateCode.toLowerCase()}` : ''}`}>
                       {renderedState && stateCode && <div className="exception-title"><span className="exception-symbol"><Icon name={stateCode === 'SYSTEM_ERROR' ? 'warning' : 'info'} size={17}/></span><strong>{renderedState.title}</strong><span className="exception-code">{stateCode}</span></div>}
                       <div className="message-text">{message.role === 'assistant'
