@@ -149,9 +149,10 @@ button { color: inherit; }
 .list-meta { display: flex; align-items: center; gap: 2px; font-size: 10px; color: #817f7a; }
 .list-meta svg { transform: rotate(90deg); }
 .document-table { border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
-.table-head, .table-row { display: grid; grid-template-columns: minmax(270px, 1fr) 95px 38px; gap: 12px; align-items: center; }
+.table-head, .table-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 95px 38px; gap: 12px; align-items: center; }
 .table-head { height: 34px; padding: 0 12px; background: #fafaf9; color: #95928e; border-bottom: 1px solid var(--border); font-size: 9px; font-weight: 700; letter-spacing: .04em; }
 .table-row { min-height: 65px; padding: 8px 12px; border-bottom: 1px solid #efeeec; cursor: pointer; position: relative; transition: background .12s ease; }
+.document-country { font-size: 12px; }
 .table-row:last-child { border-bottom: 0; }
 .table-row:hover { background: #fafaf9; }
 .table-row.selected { background: #fdf6f5; box-shadow: inset 2px 0 var(--red); }

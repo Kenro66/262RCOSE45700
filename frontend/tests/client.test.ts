@@ -40,17 +40,17 @@ describe('C1/C5 接口需求', () => {
     })
   })
 
-  it('C5-01：问答发送 message，并将取消信号传给请求', async () => {
+  it('C5-01：问答发送 message 和 session_id，并将取消信号传给请求', async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({
       status: 'NO_READY_DOCUMENTS', answer: null, citations: [], message: '当前没有可用文件',
     }))
     vi.stubGlobal('fetch', fetcher)
     const controller = new AbortController()
-    await sendChatMessage('入境规定是什么？', controller.signal)
+    await sendChatMessage({ message: '入境规定是什么？', session_id: 'test-session' }, controller.signal)
     expect(fetcher).toHaveBeenCalledWith('/api/chat', {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
-      body: '{"message":"入境规定是什么？"}',
+      body: '{"message":"入境规定是什么？","session_id":"test-session"}',
     })
   })
 
@@ -59,7 +59,7 @@ describe('C1/C5 接口需求', () => {
       ? { status: 'SYSTEM_ERROR', answer: null, citations: [], message: '服务暂不可用' }
       : { detail: '请求内容不符合要求' }
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => Response.json(data, { status })))
-    await expect(sendChatMessage('问题')).rejects.toMatchObject({
+    await expect(sendChatMessage({ message: '问题', session_id: 'test-session' })).rejects.toMatchObject({
       name: 'ApiError', status, data,
     })
     await expect(getDocuments()).rejects.toBeInstanceOf(ApiError)
@@ -71,7 +71,7 @@ describe('C5 传输边界', () => {
   it('ERR-02：网络失败保留原异常，不返回伪造回答', async () => {
     const error = new TypeError('Network unavailable')
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error))
-    await expect(sendChatMessage('入境政策是什么？')).rejects.toBe(error)
+    await expect(sendChatMessage({ message: '入境政策是什么？', session_id: 'test-session' })).rejects.toBe(error)
   })
 
   it('C5-02：取消请求传播 AbortError 和原始信号', async () => {
@@ -80,7 +80,7 @@ describe('C5 传输边界', () => {
     const fetcher = vi.fn().mockRejectedValue(error)
     vi.stubGlobal('fetch', fetcher)
     controller.abort()
-    await expect(sendChatMessage('入境政策是什么？', controller.signal)).rejects.toBe(error)
+    await expect(sendChatMessage({ message: '入境政策是什么？', session_id: 'test-session' }, controller.signal)).rejects.toBe(error)
     expect(fetcher.mock.calls[0][1].signal).toBe(controller.signal)
   })
 })
