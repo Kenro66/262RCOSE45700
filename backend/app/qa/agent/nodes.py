@@ -10,20 +10,31 @@ import re
 import unicodedata
 from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from typing import TypeVar
 
 from pydantic import BaseModel
+from langgraph.errors import NodeCancelledError
 
+from ...adapters.generation import GenerationError
 from ...contracts import ChatStatus, DocumentRecord
 from ..citation import (Evidence, assemble_evidence, has_cited_conclusions,
                         has_unsupported_numbers, resolve_citations, validate_hits)
 from ..evidence_completion import SupplementalEvidence
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import build_messages, detect_language
+from ..retriever import RetrievalError
 from .state import (AgentState, AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
                     EvidenceDecision, GraphState, RewriteDecision)
 
 Decision = TypeVar("Decision", bound=BaseModel)
+
+
+class AgentErrorType(str, Enum):
+    AGENT_WORKFLOW_ERROR = "AGENT_WORKFLOW_ERROR"
+    SHARED_GENERATION_ERROR = "SHARED_GENERATION_ERROR"
+    SHARED_RETRIEVAL_ERROR = "SHARED_RETRIEVAL_ERROR"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
 
 
 class AgentError(RuntimeError):
@@ -33,8 +44,48 @@ class AgentError(RuntimeError):
     On workflow failure service attaches the latest budget/source snapshot.
     """
 
-    state: AgentState | None = None
-    trace: list[str] | None = None
+    def __init__(self, message: str, *, failed_node: str | None = None,
+                 error_type: AgentErrorType = AgentErrorType.UNKNOWN_ERROR):
+        super().__init__(message)
+        self.failed_node = failed_node
+        self._error_type = AgentErrorType(error_type)
+        self.state: AgentState | None = None
+        self.trace: list[str] | None = None
+
+    @property
+    def error_type(self) -> AgentErrorType:
+        return self._error_type
+
+    @property
+    def fallback_eligible(self) -> bool:
+        # Eligibility is not a decision to dispatch fallback or reset its budget.
+        return self.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR
+
+
+class _DecisionValidationError(ValueError):
+    """Successful generation returned invalid Agent-specific JSON or Schema."""
+
+
+def classify_error(exc: Exception) -> AgentErrorType:
+    """Only typed evidence of origin; never infer from node names or messages."""
+    if isinstance(exc, GenerationError):
+        return AgentErrorType.SHARED_GENERATION_ERROR
+    if isinstance(exc, RetrievalError):
+        return AgentErrorType.SHARED_RETRIEVAL_ERROR
+    if isinstance(exc, _DecisionValidationError):
+        return AgentErrorType.AGENT_WORKFLOW_ERROR
+    return AgentErrorType.UNKNOWN_ERROR
+
+
+async def _retrieval_dependency(fn, *args):
+    """An exception during an actual injected retrieval/metadata call has known origin."""
+    try:
+        return await fn(*args)
+    except (asyncio.CancelledError, NodeCancelledError):
+        raise
+    except Exception as exc:
+        raise AgentError("Shared retrieval dependency failed",
+                         error_type=AgentErrorType.SHARED_RETRIEVAL_ERROR) from exc
 
 
 def unique_fields(pairs):
@@ -80,7 +131,8 @@ def trusted_support(decision: EvidenceDecision, evidence: list[Evidence]) -> dic
         supports.extend(coverage.support)
     unknown = {s.chunk_id for s in supports} - sources.keys()
     if unknown:
-        raise AgentError("Evidence assessment selected an unknown stable chunk ID")
+        raise AgentError("Evidence assessment selected an unknown stable chunk ID",
+                         error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
     return {s.chunk_id: {"evidence_id":sources[s.chunk_id].evidence_id,"quote":sources[s.chunk_id].hit.text}
             for s in supports}
 
@@ -179,18 +231,29 @@ class Nodes:
                     "insufficient_evidence=true. This is the only repair attempt.")
         fn = self.deps.generate
         raw: str | Awaitable[str]
-        if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None)):
-            pending = fn(messages)
-            if not inspect.isawaitable(pending):
-                raise TypeError("Asynchronous generator must return an awaitable")
-            raw = await pending
-        else:
-            raw = await asyncio.to_thread(fn, messages)
-            if inspect.isawaitable(raw):
-                raw = await raw
+        try:
+            if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None)):
+                pending = fn(messages)
+                if not inspect.isawaitable(pending):
+                    raise TypeError("Asynchronous generator must return an awaitable")
+                raw = await pending
+            else:
+                raw = await asyncio.to_thread(fn, messages)
+                if inspect.isawaitable(raw):
+                    raw = await raw
+        except (asyncio.CancelledError, NodeCancelledError):
+            raise
+        except Exception as exc:
+            raise AgentError("Shared generation dependency failed",
+                             error_type=AgentErrorType.SHARED_GENERATION_ERROR) from exc
         if not isinstance(raw, str):
-            raise AgentError("Decision generator must return JSON text")
-        return schema.model_validate(json.loads(raw, object_pairs_hook=unique_fields))
+            raise AgentError("Decision generator must return JSON text",
+                             error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
+        try:
+            return schema.model_validate(json.loads(raw, object_pairs_hook=unique_fields))
+        except (ValueError, TypeError) as exc:
+            # Remains a ValueError so the existing one-answer-repair policy is unchanged.
+            raise _DecisionValidationError("Agent decision JSON/Schema validation failed") from exc
 
     async def check_conditions(self, state, *, after_retrieval=False):
         decision = await self.decide("check_applicability" if after_retrieval else "check_conditions",
@@ -223,7 +286,7 @@ class Nodes:
             return {"status":ChatStatus.INSUFFICIENT_EVIDENCE}
         self.latest = {**state, "retrieval_count": state["retrieval_count"] + 1,
                        "seen_queries":[*state.get("seen_queries",[]),state["current_query"]]}
-        hits = validate_hits(await self.deps.retrieve(state["current_query"]))
+        hits = validate_hits(await _retrieval_dependency(self.deps.retrieve, state["current_query"]))
         supplemental: Sequence[SupplementalEvidence] = ()
         if hits and self.deps.complete is not None:
             supplemental = await self.deps.complete(tuple(h.model_copy(deep=True) for h in hits))
@@ -237,7 +300,8 @@ class Nodes:
             if hit.chunk_id in by_id:
                 existing = by_id[hit.chunk_id]
                 if (existing.document_id, existing.page_number, existing.text) != (hit.document_id, hit.page_number, hit.text):
-                    raise AgentError("Stable chunk ID returned inconsistent source data")
+                    raise AgentError("Stable chunk ID returned inconsistent source data",
+                                     error_type=AgentErrorType.SHARED_RETRIEVAL_ERROR)
                 continue
             evidence.append(Evidence(f"E{len(evidence) + 1}", hit))
             by_id[hit.chunk_id] = hit
@@ -246,7 +310,7 @@ class Nodes:
 
     async def check_evidence(self, state: GraphState):
         ids = list(dict.fromkeys(e.hit.document_id for e in state["evidence"]))
-        documents = await self.deps.documents(ids) if ids else {}
+        documents = await _retrieval_dependency(self.deps.documents, ids) if ids else {}
         # Revalidate READY status and metadata on resume, rather than trusting cached metadata.
         documents = {k: v.model_dump(mode="json") if isinstance(v, DocumentRecord) else v
                      for k, v in documents.items()}
@@ -277,7 +341,7 @@ class Nodes:
     async def rewrite_query(self, state):
         decision = await self.decide("rewrite_query", state, RewriteDecision)
         if not decision.query.strip():
-            raise AgentError("Rewrite returned a blank query")
+            raise AgentError("Rewrite returned a blank query", error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
         if any(proof_text(q)==proof_text(decision.query) for q in state.get("seen_queries",[])):
             return {"status":ChatStatus.INSUFFICIENT_EVIDENCE}
         return {"current_query": decision.query}
@@ -293,7 +357,8 @@ class Nodes:
         by_id = {e.evidence_id: e for e in state["evidence"]}
         if (set(conflict.side_a) & set(conflict.side_b)
                 or any(key not in by_id for key in conflict.side_a + conflict.side_b)):
-            raise AgentError("Conflict must identify two disjoint sets of validated evidence")
+            raise AgentError("Conflict must identify two disjoint sets of validated evidence",
+                             error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
         for a in conflict.side_a:
             for b in conflict.side_b:
                 ma = state["documents"][by_id[a].hit.document_id]
@@ -325,7 +390,8 @@ class Nodes:
                 if attempt == 0:
                     feedback = {"issues":["invalid_json_schema"]}
                     continue
-                raise AgentError("Generation returned invalid structured answer after one repair") from exc
+                raise AgentError("Generation returned invalid structured answer after one repair",
+                                 error_type=AgentErrorType.AGENT_WORKFLOW_ERROR) from exc
             if decision.insufficient_evidence:
                 return {"status":ChatStatus.INSUFFICIENT_EVIDENCE}
             cleaned,citations = resolve_citations(decision.answer,state["evidence"],state["documents"])
@@ -348,19 +414,29 @@ class Nodes:
                 continue
             if "missing_valid_citations" in issues or "unsupported_numeric_notation_or_value" in issues:
                 return {"status":ChatStatus.INSUFFICIENT_EVIDENCE}
-            raise AgentError("Generated answer failed citation or language validation after one repair")
-        raise AgentError("Generation repair did not terminate")
+            raise AgentError("Generated answer failed citation or language validation after one repair",
+                             error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
 
     async def finalize(self, state):
         if state["status"] is None:
-            raise AgentError("Workflow ended without a business status")
+            raise AgentError("Workflow ended without a business status", error_type=AgentErrorType.AGENT_WORKFLOW_ERROR)
         return {}
 
     def tracked(self, name):
         async def run(state: GraphState):
             state = {**state, "trace": [*state["trace"], name]}
             self.latest = state
-            update = await getattr(self, name)(state)
-            self.latest = {**state, **update}
-            return {**update, "trace": state["trace"]}
+            try:
+                update = await getattr(self, name)(state)
+                self.latest = {**state, **update}
+                return {**update, "trace": state["trace"]}
+            except (asyncio.CancelledError, NodeCancelledError):
+                raise
+            except Exception as exc:
+                error = exc if isinstance(exc, AgentError) else AgentError(
+                    "Agent node failed", error_type=classify_error(exc))
+                error.failed_node = name
+                if error is exc:
+                    raise
+                raise error from exc
         return run
