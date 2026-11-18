@@ -112,6 +112,13 @@ jobs:
         run: |
           python -m pytest tests/test_issue7.py -ra --junitxml=test-results/issue7.xml \
             --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-issue7.xml
+      - name: Persistent chat PostgreSQL tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.databases.outcome == 'success' }}
+        env:
+          ISSUE70_TEST_POSTGRES_URL: postgresql+asyncpg://rag:ci-disposable-password@127.0.0.1:5432/issue9_test_ci
+        run: |
+          python -m pytest tests/issue70/test_postgresql.py -ra --junitxml=test-results/chat-postgres.xml \
+            --cov=app --cov-config=.coveragerc --cov-report=xml:test-results/coverage-chat-postgres.xml
       - name: Require tests to cover changed backend code
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.dependencies.outcome == 'success' }}
         run: |
@@ -119,6 +126,7 @@ jobs:
             --report test-results/coverage-unit.xml \
             --report test-results/coverage-postgres.xml \
             --report test-results/coverage-issue7.xml \
+            --report test-results/coverage-chat-postgres.xml \
             --output test-results/changed-coverage.json
       - name: Publish test summary
         if: ${{ always() }}

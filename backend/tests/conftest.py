@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
@@ -29,18 +30,21 @@ import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 
 if not _USE_POSTGRES:
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+    _SQLITE_DIRECTORY = TemporaryDirectory(prefix="backend-tests-")
+    _SQLITE_URL = "sqlite+aiosqlite:///" + (Path(_SQLITE_DIRECTORY.name) / "test.sqlite").as_posix()
+    os.environ["DATABASE_URL"] = _SQLITE_URL
 
     from sqlalchemy import text  # noqa: E402
     from sqlalchemy.ext.asyncio import (  # noqa: E402
         async_sessionmaker,
         create_async_engine,
     )
-    from sqlalchemy.pool import StaticPool  # noqa: E402
+    from sqlalchemy.pool import NullPool  # noqa: E402
 
     import app.database as database  # noqa: E402
 
-    TEST_ENGINE = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
+    # 后台任务和 TestClient 可处于不同事件循环，不能复用绑定旧循环的连接。
+    TEST_ENGINE = create_async_engine(_SQLITE_URL, poolclass=NullPool)
     TEST_SESSION_FACTORY = async_sessionmaker(TEST_ENGINE, expire_on_commit=False)
 
     database.engine = TEST_ENGINE
@@ -68,23 +72,24 @@ else:
     database.engine = PG_ENGINE
     database.SessionFactory = async_sessionmaker(PG_ENGINE, expire_on_commit=False)
 
-_TABLES = ("chunks", "ParsedPage", "documents")
+_TABLES = ("chat_submissions", "chat_questions", "chat_sessions", "chunks", "ParsedPage", "documents")
 
 
 @pytest_asyncio.fixture()
 async def db():
     """每个测试前建表并清空，测试结束后清空。
 
-    SQLite 模式用内存 TEST_ENGINE；Postgres 模式用真实 engine
-    （DATABASE_URL 须指向可写测试库——本 fixture 会 DELETE 三张表）。
+    SQLite 使用独立临时文件；Postgres 须显式指向可重置的测试库。
     """
-    from app.database import SessionFactory, engine, init_db
+    from app.database import Base, SessionFactory, engine, init_db
 
     await init_db()
     async with engine.begin() as connection:
         for table in _TABLES:
-            await connection.execute(text(f'DELETE FROM "{table}"'))
+            if table in Base.metadata.tables:
+                await connection.execute(text(f'DELETE FROM "{table}"'))
     yield SessionFactory
     async with engine.begin() as connection:
         for table in _TABLES:
-            await connection.execute(text(f'DELETE FROM "{table}"'))
+            if table in Base.metadata.tables:
+                await connection.execute(text(f'DELETE FROM "{table}"'))
