@@ -33,14 +33,18 @@ def test_explicit_mode_and_positive_timeout(mode, monkeypatch):
     assert load_rag_settings(config).mode == mode
 
 
+def test_missing_configuration_preserves_single_mode():
+    assert load_rag_settings({}) == RagSettings("single", 120)
+
+
 @pytest.mark.parametrize("mode", [None, "", "AGENT", " single", "rag"])
-def test_missing_or_invalid_mode_never_defaults(mode):
+def test_invalid_mode_is_rejected(mode):
     with pytest.raises(ValueError, match="RAG_MODE"):
         load_rag_settings({"RAG_MODE": mode, "RAG_EXECUTION_TIMEOUT_SECONDS": "120"})
 
 
 @pytest.mark.parametrize("timeout", [None, "", "0", "-1", "1.5", " 3", "１２", "two", 12])
-def test_timeout_must_be_explicit_positive_ascii_integer(timeout):
+def test_configured_timeout_must_be_positive_ascii_integer(timeout):
     with pytest.raises(ValueError, match="TIMEOUT"):
         load_rag_settings({"RAG_MODE": "agent", "RAG_EXECUTION_TIMEOUT_SECONDS": timeout})
 

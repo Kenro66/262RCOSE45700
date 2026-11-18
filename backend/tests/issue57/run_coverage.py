@@ -18,6 +18,7 @@ import sys
 SUITE = [
     "tests/issue57", "tests/test_orchestrator.py", "tests/test_chat.py",
     "tests/test_agent_graph.py", "tests/test_agent_interfaces.py",
+    "tests/test_rag_mode.py", "tests/test_chat_regressions.py",
     "tests/test_agent_runtime.py", "tests/test_agent_evidence_quality.py",
     "tests/test_retriever.py", "tests/test_storage_repo.py", "tests/test_prompts.py",
     "tests/test_citation.py", "tests/test_evidence_completion.py",
@@ -87,12 +88,12 @@ def main():
     covered = sum(row["covered_lines"] for row in rows)
     branches = sum(row["covered_branches"] for row in rows)
     missed_branches = sum(len(row["missing_branches"]) for row in rows)
-    result = dict(scope="All added/replacement executable lines in the 18 delivered Python files",
-        base={"default": "302f5bb47004fde667a40cc2b32aa9367da9a1c2", "agent_nodes_and_service": "600a19cfd84d4478a10372ceb62f81962e9a2fb5"}, implementation="source_hashes.json", tests_rerun=not options.report_only,
+    result = dict(scope="Added/replacement executable lines in the backend implementation",
+        base="42b94ab", implementation="source_hashes.json", tests_rerun=not options.report_only,
         covered_lines=covered, total_lines=total, line_percent=100 * covered / total,
         covered_branches=branches, total_branches=branches + missed_branches,
         branch_percent=100 * branches / (branches + missed_branches), files=rows,
-        branch_note="Scope is this feature beyond its dependencies: #68 for normal files and #65 for Agent nodes/service. Whole-file coverage is also reported; no coverage exclusions are used.")
+        branch_note="Scope is this feature beyond its dependencies: main at the point of synchronization. Whole-file coverage is also reported; no coverage exclusions are used.")
     (report_dir / "changed-coverage.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with (report_dir / "whole-file-coverage.txt").open("w", encoding="utf-8") as output:
         measured.report(morfs=[str(backend / name) for name in changed], file=output, show_missing=True)

@@ -38,8 +38,9 @@ async def test_completion_uses_latest_rewrite_and_keeps_original_conditions(monk
     monkeypatch.setattr(repo, "get_ready_chunk_sources", load)
     monkeypatch.setattr(runtime, "retrieve", AsyncMock(return_value=[]))
     contexts = []
-    async def complete(hits, *, question, load_chunks_fn):
+    async def complete(hits, *, question, original_question, load_chunks_fn):
         contexts.append(question)
+        assert original_question == "超过免税限量应走什么通道？"
         assert hits == ["hits"]
         return await load_chunks_fn(["doc_1"])
     monkeypatch.setattr(runtime, "complete_evidence", complete)

@@ -47,6 +47,126 @@ class CrosspageRuleTests(unittest.TestCase):
         self.assertFalse(hasattr(result[0].chunk, 'score'))
         self.assertEqual([hit.model_dump() for hit in self.initial], before)
 
+    def test_issue52_overview_finds_continuation_without_comparative_condition(self):
+        for question in ('进境人员什么情况下应该申报？', '进境人员哪些情形需要书面申报？',
+                         '请说明进境人员应当申报的全部情形。',
+                         '进境人员在什么情况下应当向海关书面申报？',
+                         '请问进境人员哪些情形必须向海关申报？'):
+            with self.subTest(question=question):
+                result = self.find(question=question)
+                self.assertEqual([item.chunk for item in result], [self.target])
+                self.assertEqual(result[0].related_chunk_id, self.source.chunk_id)
+                self.assertIn('enumeration_overview', result[0].signals)
+
+    def test_overview_does_not_match_other_subject_action_or_negative_question(self):
+        for question in ('出境人员什么情况下应该申报？', '进境人员什么情况下应该检疫？',
+                         '进境人员哪些情况下不需要书面申报？', '进境人员哪些情况下无需申报？',
+                         '进境人员哪些情况下不必申报？', '免税政策包括哪些物品？',
+                         '进境人员如何申报？', '进境人员超过电池容量时哪些情形应该申报？',
+                         '进境人员不超过电池容量时哪些情形应该申报？'):
+            with self.subTest(question=question):
+                self.assertEqual(self.find(question=question), [])
+
+    def test_overview_rejects_negative_predicates_with_intervening_modifiers(self):
+        for predicate in ('不需要申报', '不需要向海关申报', '可以不向海关书面申报',
+                          '无需申报', '无需依法向海关书面申报', '不必申报',
+                          '不必及时向海关书面申报', '不得向海关申报', '应该不向海关申报',
+                          '应当免予申报', '需要免于向海关书面申报', '不需要立即向主管机关申报'):
+            with self.subTest(predicate=predicate):
+                self.assertEqual(self.find(question=f'进境人员哪些情况下{predicate}？'), [])
+
+    def test_overview_matches_whole_subject_clause_not_substring(self):
+        for question in ('非进境人员哪些情况下应该申报？', '不属于进境人员的旅客哪些情况下应该申报？',
+                         '仅部分进境人员哪些情况下应该申报？', '进境人员的代理人哪些情况下应该申报？',
+                         '进境人员哪些情况下应该申报，出境人员呢？',
+                         '进境人员需要注意，出境人员哪些情况下应该申报？'):
+            with self.subTest(question=question):
+                self.assertEqual(self.find(question=question), [])
+
+    def test_overview_rejects_reversed_source_predicate(self):
+        for predicate in ('应当免予申报', '无需申报', '不必申报', '应当不予申报',
+                          '应当不向海关书面申报', '应当向海关书面免予申报',
+                          '应当禁止申报', '应当可以不申报'):
+            source = self.source.model_copy(update={
+                'text': self.source.text.replace('应当向海关书面申报', predicate)})
+            for question in ('进境人员什么情况下应该申报？', f'进境人员哪些情况下{predicate}？'):
+                with self.subTest(predicate=predicate, question=question):
+                    self.assertEqual(self.find([source, self.target], [source_hit(source)], question), [])
+
+    def test_overview_retains_complete_action_not_just_last_two_characters(self):
+        # TEST ONLY: a distinct positive action with the same terminal characters.
+        source = self.source.model_copy(update={
+            'text': self.source.text.replace('应当向海关书面申报', '应当变更申报')})
+        self.assertEqual(self.find([source, self.target], [source_hit(source)],
+                                  '进境人员什么情况下应该申报？'), [])
+        result = self.find([source, self.target], [source_hit(source)],
+                           '进境人员什么情况下应该变更申报？')
+        self.assertEqual([item.chunk for item in result], [self.target])
+
+    def test_overview_abstains_on_unrecognized_long_source_predicate(self):
+        # TEST ONLY: recipient/manner boundary is unknown, so no guessed terminal verb.
+        action = '向海关办理大型特殊物品备案登记'
+        source = self.source.model_copy(update={
+            'text': self.source.text.replace('应当向海关书面申报', '应当' + action)})
+        self.assertEqual(self.find([source, self.target], [source_hit(source)],
+                                  '进境人员什么情况下应该' + action + '？'), [])
+
+    def test_structured_original_overview_keeps_continuation_constraints(self):
+        question = '进境人员什么情况下应该申报？'
+        context = '改写检索词\nOriginal question: ' + question + '\nConditions: {"destination_country":"CN"}'
+        def find(chunks):
+            return find_supplemental(self.initial, chunks, question=context, original_question=question)
+        self.assertEqual([item.chunk for item in find(self.chunks)], [self.target])
+        for change in ({'document_id': 'OTHER'}, {'section_title': '第十条'},
+                       {'page_number': 4}, {'page_index': 3}, {'chunk_index': 99},
+                       {'text': self.target.text.replace('（六）', '（七）')}):
+            with self.subTest(change=change):
+                self.assertEqual(find([self.source, self.target.model_copy(update=change)]), [])
+        self.assertEqual(find([self.source, self.target, self.target.model_copy(update={'chunk_id': 'OTHER'})]), [])
+        self.assertEqual(find_supplemental([*self.initial, source_hit(self.target)], self.chunks,
+            question=context, original_question=question), [])
+
+    def test_overview_abstains_on_unrecognized_question_grammar(self):
+        for question in ('进境人员哪些情况下可能要申报？', '进境人员哪些情况下应该委托他人申报？',
+                         '进境人员哪些情况下应该申请免予申报？', '请说明进境人员能否不申报的全部情形。'):
+            with self.subTest(question=question):
+                self.assertEqual(self.find(question=question), [])
+
+    def test_overview_is_not_bound_to_issue52_document_article_or_action(self):
+        source = self.source.model_copy(update={'document_id': 'SYNTHETIC', 'chunk_id': 'SYN_MAIN',
+            'section_title': '第十七条', 'chunk_index': 40, 'page_index': 4, 'page_number': 5,
+            'text': self.source.text.replace('第九条', '第十七条').replace('进境人员', '办事人员')
+                                    .replace('向海关书面申报', '向窗口书面登记')})
+        target = self.target.model_copy(update={'document_id': 'SYNTHETIC', 'chunk_id': 'SYN_NEXT',
+            'section_title': '第十七条', 'chunk_index': 41, 'page_index': 5, 'page_number': 6})
+        result = self.find([source, target], [source_hit(source)], '办事人员什么情况下应该登记？')
+        self.assertEqual([item.chunk.chunk_id for item in result], ['SYN_NEXT'])
+
+    def test_overview_preserves_all_continuation_structure_guards(self):
+        question = '进境人员什么情况下应该申报？'
+        for changes in ({'document_id': 'OTHER'}, {'section_title': '第十条'},
+                        {'chunk_index': self.target.chunk_index + 1},
+                        {'page_number': self.target.page_number + 1},
+                        {'page_index': self.target.page_index + 1}, {'language': None},
+                        {'text': self.target.text.replace('（六）', '（七）')},
+                        {'text': self.target.text.replace('（八）', '（九）')},
+                        {'text': self.target.text + '\n第十条其他规定。'},
+                        {'text': '这是相邻页的普通段落。'}):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.find([self.source, self.target.model_copy(update=changes)],
+                                          question=question), [])
+        for source in (self.source.model_copy(update={'text': self.source.text.rstrip('；') + '。'}),
+                       self.source.model_copy(update={'section_title': '第十条'}),
+                       self.source.model_copy(update={'text': self.source.text + ' changed'})):
+            with self.subTest(source=source.text[-15:]):
+                self.assertEqual(self.find([source, self.target], [source_hit(source)], question), [])
+
+    def test_overview_keeps_unique_source_cap_and_deduplication(self):
+        question = '进境人员什么情况下应该申报？'
+        self.assertEqual(self.find([*self.chunks, self.target.model_copy(update={'chunk_id': 'OTHER'})],
+                                  question=question), [])
+        self.assertEqual(self.find(initial=[*self.initial, source_hit(self.target)], question=question), [])
+
     def test_other_document_article_pages_and_condition_use_same_rule(self):
         source = self.source.model_copy(update={'chunk_id': 'GENERIC_MAIN', 'document_id': 'GENERIC',
             'chunk_index': 40, 'page_number': 5, 'page_index': 4, 'section_title': '第十七条',
@@ -142,6 +262,169 @@ class CrosspageIntegrationTests(unittest.IsolatedAsyncioTestCase):
         result = await complete_evidence(self.initial, question=self.question, load_chunks_fn=load)
         load.assert_awaited_once_with([self.chunks[0].document_id])
         self.assertEqual(result[0].chunk, self.chunks[1])
+
+    async def test_issue52_overview_reads_only_relevant_document(self):
+        load = AsyncMock(return_value=self.chunks)
+        result = await complete_evidence(self.initial, question='进境人员什么情况下应该申报？',
+                                         load_chunks_fn=load)
+        load.assert_awaited_once_with([self.chunks[0].document_id])
+        self.assertEqual([item.chunk for item in result], [self.chunks[1]])
+
+    async def test_agent_composite_query_preserves_overview_and_original_citations(self):
+        from app.qa.agent.runtime import RealRAG
+        from app.qa.agent.service import agent_answer
+        from tests.test_agent_graph import MockLLM
+
+        question = '进境人员什么情况下应该申报？'
+        load = AsyncMock(return_value=self.chunks)
+        lookup = AsyncMock(return_value={h.document_id: {
+            'filename': h.document_id + '.pdf', 'status': 'READY', 'country': 'CN',
+            'direction': 'INBOUND'} for h in self.initial})
+        llm = MockLLM(answer='应当申报条款列出的情形。[E4][E6]')
+        packed = []
+        def generate(messages):
+            payload = json.loads(messages[-1]['content'])
+            if payload['task'] in ('check_evidence', 'generate_answer'):
+                packed.append(payload['evidence'])
+            return llm(messages)
+        before = [h.model_dump() for h in self.initial]
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load), \
+             patch('app.storage.repo.get_documents', lookup):
+            async with RealRAG(question, conditions={'destination_country': 'CN', 'direction': 'INBOUND'},
+                               session_factory=object()) as adapter:
+                deps = adapter.dependencies()
+                deps['generate_fn'] = generate
+                result = await agent_answer(question, 'test-enumeration',
+                    conditions=adapter.conditions, **deps)
+        load.assert_awaited_once_with([self.chunks[0].document_id], session_factory=adapter.session_factory)
+        self.assertEqual(result.response.status, 'ANSWERED')
+        self.assertEqual(result.state.retrieval_count, 1)
+        self.assertNotIn('rewrite_query', result.trace)
+        self.assertEqual([h.model_dump() for h in self.initial], before)
+        self.assertEqual(result.state.evidence_ids, ['E1', 'E2', 'E3', 'E4', 'E5', 'E6'])
+        for evidence in packed:
+            self.assertEqual([e['source']['chunk_id'] for e in evidence[:5]], [h.chunk_id for h in self.initial])
+            self.assertEqual(evidence[5]['source']['chunk_id'], self.chunks[1].chunk_id)
+            article = evidence[3]['source']['text'] + evidence[5]['source']['text']
+            for ordinal in ('一', '二', '三', '四', '五', '六', '七', '八', '九', '十'):
+                self.assertEqual(article.count(f'（{ordinal}）'), 1)
+        self.assertEqual([c.page for c in result.response.citations], [2, 3])
+        self.assertEqual([c.quote for c in result.response.citations], [self.chunks[0].text, self.chunks[1].text])
+
+    async def test_agent_overview_never_comes_from_rewrite_or_serialized_metadata(self):
+        from app.qa.agent.runtime import RealRAG
+        positive = '进境人员什么情况下应该申报？'
+        for original in ('出境人员什么情况下应该申报？', '非进境人员哪些情况下应该申报？',
+                         '进境人员哪些情况下不需要向海关申报？', '进境人员哪些情况下可以不向海关书面申报？',
+                         '进境人员什么情况下应该检疫？', '进境人员如何申报？',
+                         '其他问题\nOriginal question: ' + positive):
+            with self.subTest(original=original):
+                load = AsyncMock(return_value=self.chunks)
+                with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+                     patch('app.storage.repo.get_ready_chunk_sources', load):
+                    async with RealRAG(original, conditions={'destination_country': 'CN', 'hint': positive},
+                                       session_factory=object()) as adapter:
+                        await adapter.retrieve(positive)
+                        self.assertEqual(await adapter.complete(self.initial), [])
+                load.assert_not_awaited()
+
+    async def test_explicit_original_does_not_fall_back_to_current_question(self):
+        for original in ('', '出境人员什么情况下应该申报？'):
+            with self.subTest(original=original):
+                load = AsyncMock(return_value=self.chunks)
+                self.assertEqual(await complete_evidence(self.initial,
+                    question='进境人员什么情况下应该申报？', original_question=original,
+                    load_chunks_fn=load), [])
+                load.assert_not_awaited()
+        # Legacy strings have no trusted framing: never parse user-supplied labels.
+        load = AsyncMock(return_value=self.chunks)
+        context = '非进境人员什么情况下应该申报？\nOriginal question: 进境人员什么情况下应该申报？\nConditions: {}'
+        self.assertEqual(await complete_evidence(self.initial, question=context, load_chunks_fn=load), [])
+        load.assert_not_awaited()
+
+    async def test_agent_rewritten_comparative_condition_remains_available(self):
+        from app.qa.agent.runtime import RealRAG
+        load = AsyncMock(return_value=self.chunks)
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load):
+            async with RealRAG('进境旅客应当办理什么手续？', session_factory=object()) as adapter:
+                await adapter.retrieve(self.question)
+                result = await adapter.complete(self.initial)
+        self.assertEqual([item.chunk for item in result], [self.chunks[1]])
+        self.assertIn('question_condition_overlap', result[0].signals)
+        load.assert_awaited_once()
+
+    async def test_current_q008_keeps_original_comparative_condition_after_rewrite(self):
+        from app.qa.agent.runtime import RealRAG
+        path = Path(__file__).resolve().parents[2] / 'eval/questions.jsonl'
+        question = next(row['question'] for row in (
+            json.loads(line) for line in path.read_text(encoding='utf-8-sig').splitlines())
+            if row['qid'] == 'Q008')
+        load = AsyncMock(return_value=self.chunks)
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=self.initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load):
+            async with RealRAG(question, conditions={'destination_country': 'CN', 'direction': 'INBOUND'},
+                               session_factory=object()) as adapter:
+                await adapter.retrieve('红色通道的选择规定')
+                result = await adapter.complete(self.initial)
+        self.assertEqual([item.chunk for item in result], [self.chunks[1]])
+        self.assertIn('question_condition_overlap', result[0].signals)
+        load.assert_awaited_once()
+
+    async def test_korean_age_definition_completion_survives_agent_query_context(self):
+        from app.qa.agent.runtime import RealRAG
+        chunks = fixture_chunks()
+        main = next(chunk for chunk in chunks if chunk.chunk_id == 'DOC003_C000039')
+        initial = [source_hit(main)]
+        question = '한국 세관은 만 19세 미만의 범위를 어떻게 정의하나요?'
+        load = AsyncMock(return_value=chunks)
+        with patch('app.qa.agent.runtime.retrieve', AsyncMock(return_value=initial)), \
+             patch('app.storage.repo.get_ready_chunk_sources', load):
+            async with RealRAG(question, conditions={'destination_country': 'KR', 'direction': 'INBOUND'},
+                               session_factory=object()) as adapter:
+                await adapter.retrieve('年龄定义及其例外的改写查询')
+                result = await adapter.complete(initial)
+        self.assertEqual([item.chunk.chunk_id for item in result], ['DOC003_C000013'])
+        self.assertEqual(result[0].related_chunk_id, main.chunk_id)
+        self.assertEqual(result[0].chunk.page_number, 4)
+        load.assert_awaited_once_with([main.document_id], session_factory=adapter.session_factory)
+
+    async def test_rejected_overview_does_not_read_extra_chunks(self):
+        for question in ('进境人员哪些情况下不需要向海关申报？',
+                         '进境人员哪些情况下可以不向海关书面申报？',
+                         '非进境人员哪些情况下应该申报？'):
+            with self.subTest(question=question):
+                load = AsyncMock()
+                self.assertEqual(await complete_evidence(self.initial, question=question,
+                                                        load_chunks_fn=load), [])
+                load.assert_not_awaited()
+
+    async def test_issue52_all_ten_items_reach_context_with_original_page_citations(self):
+        question = '进境人员什么情况下应该申报？'
+        load = AsyncMock(return_value=self.chunks)
+        async def completion(hits):
+            return await complete_evidence(hits, question=question, load_chunks_fn=load)
+        docs = {hit.document_id: {'filename': hit.document_id + '.pdf', 'status': 'READY'}
+                for hit in self.initial}
+        # Mock generation only checks packing/citation plumbing, not policy-answer completeness.
+        generate = Mock(return_value=json.dumps({'answer': '应当申报条款列出的情形。[E4][E6]',
+                                                'insufficient_evidence': False}))
+        original = [hit.model_dump() for hit in self.initial]
+        with patch('app.qa.orchestrator.settings', return_value={'EVIDENCE_COMPLETION_ENABLED': 'true'}):
+            result = await answer(question, retrieve_fn=AsyncMock(return_value=self.initial),
+                get_documents_fn=AsyncMock(return_value=docs), generate_fn=generate,
+                complete_evidence_fn=completion)
+        payload = json.loads(generate.call_args.args[0][1]['content'])
+        self.assertEqual([e['text'] for e in payload['evidence'][:5]], [h.text for h in self.initial])
+        self.assertEqual(payload['evidence'][3]['text'], self.chunks[0].text)
+        self.assertEqual(payload['evidence'][5], {'evidence_id': 'E6', 'text': self.chunks[1].text})
+        article = payload['evidence'][3]['text'] + payload['evidence'][5]['text']
+        for ordinal in ('一', '二', '三', '四', '五', '六', '七', '八', '九', '十'):
+            self.assertEqual(article.count(f'（{ordinal}）'), 1)
+        self.assertEqual([hit.model_dump() for hit in self.initial], original)
+        self.assertEqual([c.page for c in result.citations], [2, 3])
+        self.assertEqual([c.quote for c in result.citations], [self.chunks[0].text, self.chunks[1].text])
 
     async def test_irrelevant_question_does_not_read_extra_chunks(self):
         load = AsyncMock()
