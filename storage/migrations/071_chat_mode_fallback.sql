@@ -1,5 +1,4 @@
 -- 在 070_chat_persistence.sql 之后执行；不推测历史记录的模式或检索预算。
-BEGIN;
 ALTER TABLE chat_questions ADD COLUMN IF NOT EXISTS mode VARCHAR(8);
 ALTER TABLE chat_questions ADD COLUMN IF NOT EXISTS document_ids JSONB;
 ALTER TABLE chat_questions ADD COLUMN IF NOT EXISTS retrieval_used INTEGER;
@@ -26,4 +25,3 @@ CREATE TABLE IF NOT EXISTS chat_retrieval_attempts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (question_id, ordinal)
 );
-COMMIT;
