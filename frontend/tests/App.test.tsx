@@ -47,6 +47,26 @@ beforeEach(() => {
   mockApi()
 })
 
+it.each([404, 500])('keeps the chat layout when the session endpoint returns %i', async (status) => {
+  const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+    if (url === '/api/documents') return Response.json([readyDocument])
+    if (url === '/api/chat/sessions') return Response.json({ detail: 'Session request failed' }, { status })
+    throw new Error('Unexpected request: ' + String(url))
+  })
+  vi.stubGlobal('fetch', fetcher)
+
+  await openChat()
+  expect(fetcher).toHaveBeenCalledWith('/api/chat/sessions', expect.any(Object))
+
+  if (status === 404) {
+    expect(screen.queryByRole('alert')).toBeNull()
+  } else {
+    const alert = await screen.findByRole('alert')
+    expect(alert.closest('.conversation-history')).toBeVisible()
+  }
+})
+
+
 describe('文件页面需求', () => {
   it('DOC-01：展示后端的可用、处理中、失败状态及失败原因', async () => {
     mockApi([
