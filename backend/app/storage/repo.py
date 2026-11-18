@@ -242,7 +242,7 @@ async def next_document_id(
         return f"DOC{number:03d}"
 
 
-def build_search_similar_stmt(query_vector: list[float], top_k: int):
+def build_search_similar_stmt(query_vector: list[float], top_k: int, *, document_ids=None):
     """构造向量检索语句（仅 Postgres/pgvector）。
 
     只查 READY 文件；score = 1 - 余弦距离，按 score 从高到低（距离升序）
@@ -250,7 +250,7 @@ def build_search_similar_stmt(query_vector: list[float], top_k: int):
     """
     distance = Chunk.embedding.cosine_distance(query_vector)
     score = (1 - distance).label("score")
-    return (
+    statement = (
         select(
             Chunk.chunk_id,
             Chunk.document_id,
@@ -266,15 +266,19 @@ def build_search_similar_stmt(query_vector: list[float], top_k: int):
         .order_by(distance.asc())
         .limit(top_k)
     )
+    if document_ids is not None:
+        statement = statement.where(Chunk.document_id.in_(document_ids))
+    return statement
 
 
 async def search_similar(
     query_vector: list[float],
     top_k: int,
     session_factory: SessionMaker = SessionFactory,
+    *, document_ids=None,
 ) -> list[SearchHit]:
     """按向量距离在 C2 里取最近的 top_k 个文本块，只查 READY 文件（Issue #11）。"""
-    statement = build_search_similar_stmt(query_vector, top_k)
+    statement = build_search_similar_stmt(query_vector, top_k, document_ids=document_ids)
     async with session_factory() as session:
         rows = (await session.execute(statement)).all()
         return [
@@ -325,7 +329,7 @@ async def get_ready_chunk_sources(
     document_ids: list[str],
     session_factory: SessionMaker = SessionFactory,
 ) -> list[ContractChunk]:
-    """Read original C2 metadata/text only; never load embeddings or non-READY files."""
+    """仅读取原始文本块的元数据和正文，不加载向量或尚未就绪的文件。"""
     if not document_ids:
         return []
     columns = [getattr(Chunk, name) for name in ContractChunk.model_fields]

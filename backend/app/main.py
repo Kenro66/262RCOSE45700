@@ -11,6 +11,7 @@ from app.adapters.embedding import embed_chunks as default_embed_chunks
 from app.adapters.config import settings
 from app.api.documents import build_documents_router
 from app.api.chat import build_chat_router
+from app.chat.config import load_rag_settings
 from app.chat.persistent.api import build_persistent_chat_router
 from app.chat.persistent.store import ChatStore
 from app.chat.persistent.runner import ChatRunner
@@ -57,19 +58,17 @@ def create_app(chunk_pages=None, embed_chunks=None, answer_fn=None, chat_executo
     """构建应用；默认连接真实切分、嵌入、检索和问答。
 
     标题/版本沿用 Issue #4 骨架（Document-RAG-Chatbot 0.1.0）。"""
-    mode = settings().get("RAG_MODE", "single")
-    if mode not in {"single", "agent"}:
-        raise ValueError("RAG_MODE 必须为 single 或 agent；未配置时默认 single。")
+    rag_settings = load_rag_settings(settings())
     if chunk_pages is None:
         chunk_pages = default_chunk_pages
     if embed_chunks is None:
         embed_chunks = default_embed_chunks
     app = FastAPI(title="Document-RAG-Chatbot", version="0.1.0", lifespan=lifespan)
     app.include_router(build_documents_router(chunk_pages, embed_chunks), prefix="/api")
-    if answer_fn is not None or mode == "single":
+    if answer_fn is not None or rag_settings.mode == "single":
         app.include_router(build_chat_router(answer_fn if answer_fn is not None else answer_question), prefix="/api")
     else:
-        store = ChatStore()
+        store = ChatStore(rag_settings=rag_settings if chat_executor is None else None)
         runner = ChatRunner(store, executor=chat_executor)
         app.state.chat_runner = runner
         app.include_router(build_persistent_chat_router(store, runner), prefix="/api")

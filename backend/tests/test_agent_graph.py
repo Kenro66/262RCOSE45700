@@ -1,4 +1,4 @@
-"""Deterministic full-graph tests: no models, embeddings or business database."""
+"""结果可复现的完整工作流测试，不调用模型、嵌入服务或业务数据库。"""
 
 import asyncio
 import inspect
@@ -37,7 +37,7 @@ def document(index=1, country="CN", direction="INBOUND", status="READY"):
 
 
 class MockLLM:
-    """Uses the same messages -> JSON text signature as the existing generator."""
+    """沿用现有生成器接收消息并返回 JSON 文本的接口形式。"""
 
     def __init__(self, *, sufficient_at=1, missing_pre=False, missing_post=False,
                  conflict=False, answer=None, overrides=None):
@@ -85,7 +85,7 @@ def no_network(monkeypatch):
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
     original_connect = socket.socket.connect
     def connect(sock, address):
-        # Windows asyncio creates its internal wakeup socket pair on loopback.
+        # Windows 异步事件循环通过本机回环套接字对实现内部唤醒。
         if isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"):
             return original_connect(sock, address)
         raise AssertionError("Agent Mock tests must not connect to the network")
@@ -697,6 +697,88 @@ async def test_langgraph_node_cancelled_error_keeps_existing_cancel_semantics():
     deps['generate_fn'] = AsyncMock(side_effect=NodeCancelledError('synthetic cancellation'))
     with pytest.raises(asyncio.CancelledError):
         await run(deps)
+
+
+@pytest.mark.asyncio
+async def test_sync_generator_returning_coroutine_is_awaited():
+    llm = MockLLM()
+
+    async def generate(messages):
+        return llm(messages)
+
+    result = await run(dependencies(lambda messages: generate(messages)))
+    assert result.response.status == ChatStatus.ANSWERED
+    assert result.trace == NORMAL
+
+
+@pytest.mark.asyncio
+async def test_marked_async_generator_with_nonawaitable_result_is_shared_failure():
+    import inspect
+
+    @inspect.markcoroutinefunction
+    def generate(messages):
+        return "{}"
+
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(generate))
+    assert caught.value.error_type == AgentErrorType.SHARED_GENERATION_ERROR
+    assert isinstance(caught.value.__cause__, TypeError)
+    assert not caught.value.fallback_eligible
+
+
+@pytest.mark.asyncio
+async def test_nontext_decision_is_workflow_failure():
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(lambda messages: {"missing_conditions": []}))
+    assert caught.value.error_type == AgentErrorType.AGENT_WORKFLOW_ERROR
+    assert caught.value.failed_node == "check_conditions"
+    assert caught.value.state.retrieval_count == 0
+
+
+@pytest.mark.asyncio
+async def test_typed_generation_error_from_node_keeps_shared_origin(monkeypatch):
+    async def fail(self, state):
+        raise GenerationError("测试生成服务故障")
+
+    monkeypatch.setattr(Nodes, "check_applicability", fail)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies())
+    assert caught.value.error_type == AgentErrorType.SHARED_GENERATION_ERROR
+    assert not caught.value.fallback_eligible
+
+
+@pytest.mark.asyncio
+async def test_finalize_rejects_missing_business_status():
+    deps = dependencies()
+    nodes = Nodes(Dependencies(deps["retrieve_fn"], deps["get_documents_fn"], deps["generate_fn"]))
+    with pytest.raises(AgentError) as caught:
+        await nodes.finalize({"status": None})
+    assert caught.value.error_type == AgentErrorType.AGENT_WORKFLOW_ERROR
+
+
+@pytest.mark.asyncio
+async def test_post_graph_unknown_conflict_source_is_workflow_failure(monkeypatch):
+    import app.qa.agent.service as service
+    from app.qa.agent.state import Conflict
+
+    original = service.build_graph
+
+    def corrupt_graph(nodes):
+        graph = original(nodes)
+
+        class CorruptGraph:
+            async def ainvoke(self, initial, config):
+                final = await graph.ainvoke(initial, config=config)
+                return {**final, "status": ChatStatus.CONFLICTING_EVIDENCE,
+                        "conflict": Conflict(reason="测试失效来源", side_a=["E1"], side_b=["E99"])}
+
+        return CorruptGraph()
+
+    monkeypatch.setattr(service, "build_graph", corrupt_graph)
+    with pytest.raises(AgentError, match="unknown evidence") as caught:
+        await run(dependencies())
+    assert caught.value.error_type == AgentErrorType.AGENT_WORKFLOW_ERROR
+    assert caught.value.failed_node is None
 
 
 @pytest.mark.asyncio

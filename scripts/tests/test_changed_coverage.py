@@ -206,6 +206,28 @@ class ChangedCoverageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(payload["files"][0]["uncovered"], [2])
 
+    def test_scope_declarations_need_no_runtime_coverage(self):
+        for declaration in ("global result", "nonlocal result"):
+            with self.subTest(declaration=declaration):
+                self.change(text="def value():\n    result = 1\n    def update():\n"
+                            f"        {declaration}  # 仅声明名称作用域。\n"
+                            "        result = 2\n    return update\n")
+                report = self.report({"example.py": {1: 1, 2: 1, 3: 1, 5: 1, 6: 1}})
+                result, payload = self.invoke([report])
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(payload["passed"])
+
+    def test_scope_declarations_do_not_hide_same_line_runtime_code(self):
+        for statement in ("global result; result = 2", "nonlocal result; result = 2",
+                          "if True: global result", "if True: nonlocal result"):
+            with self.subTest(statement=statement):
+                self.change(text="def value():\n    result = 1\n    def update():\n"
+                            f"        {statement}\n    return update\n")
+                report = self.report({"example.py": {1: 1, 2: 1, 3: 1, 4: 0, 5: 1}})
+                result, payload = self.invoke([report])
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(payload["files"][0]["uncovered"], [4])
+
     def test_local_annotation_does_not_hide_same_line_runtime_statement(self):
         for annotation in ("int", "list['中文']"):
             with self.subTest(annotation=annotation):

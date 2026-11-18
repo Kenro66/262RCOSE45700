@@ -22,6 +22,7 @@ from sqlalchemy import select, func
 import uvicorn
 
 import app.adapters.embedding as embedding
+import app.adapters.generation as generation
 import app.qa.agent.runtime as runtime
 import app.qa.orchestrator as orchestrator
 from app.database import SessionFactory
@@ -71,6 +72,7 @@ def generate(messages):
 
 embedding.embed_texts = embed
 runtime.generate_text = generate
+generation.generate_text = generate
 orchestrator.generate_text = lambda _: '{"answer":"物品需要申报。[E1]","insufficient_evidence":false}'
 application = create_app()
 original_lifespan = application.router.lifespan_context

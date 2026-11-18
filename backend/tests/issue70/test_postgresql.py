@@ -29,8 +29,9 @@ async def postgres_store():
     try:
         raw = await asyncpg.connect(url.replace("+asyncpg", "", 1), server_settings={"search_path": schema})
         try:
-            migration = BACKEND.parent / "storage/migrations/070_chat_persistence.sql"
-            await raw.execute(migration.read_text(encoding="utf-8-sig"))
+            for name in ("070_chat_persistence.sql", "071_chat_mode_fallback.sql"):
+                migration = BACKEND.parent / "storage/migrations" / name
+                await raw.execute(migration.read_text(encoding="utf-8-sig"))
         finally:
             await raw.close()
         engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})

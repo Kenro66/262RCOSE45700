@@ -112,13 +112,13 @@ async def test_sync_dependency_does_not_block_the_event_loop():
 async def test_agent_app_no_documents_no_embedding_or_generation(db, monkeypatch):
     monkeypatch.setenv("RAG_MODE", "agent")
     import app.adapters.embedding as embedding
-    import app.qa.agent.runtime as runtime
+    import app.adapters.generation as generation
 
     def forbidden(*args, **kwargs):
         pytest.fail("No READY documents must bypass all model calls")
 
     monkeypatch.setattr(embedding, "embed_texts", forbidden)
-    monkeypatch.setattr(runtime, "generate_text", forbidden)
+    monkeypatch.setattr(generation, "generate_text", forbidden)
     response = await post(create_app())
     assert response.status_code == 200
     body = response.json()
@@ -142,11 +142,12 @@ async def seed_real_wiring(db, monkeypatch, *, empty_hits=False):
         observed.append(("embed", texts))
         return [[0.1] * 1024]
 
-    async def search(vector, top_k, *, session_factory=None):
+    async def search(vector, top_k, *, session_factory=None, document_ids=None):
         assert len(vector) == 1024
         assert top_k == 5
         observed.append(("search", top_k))
         if empty_hits:
+            assert document_ids == ('DOC001',)
             assert session_factory is db
             return []
         return [SearchHit(chunk_id="DOC001_C000000", document_id="DOC001",
@@ -184,7 +185,7 @@ async def test_configured_single_wiring_runs_real_retriever_orchestrator_and_db_
 async def test_configured_agent_wiring_runs_real_retriever_and_saves_budget(db, monkeypatch):
     monkeypatch.setenv("RAG_MODE", "agent")
     import json
-    import app.qa.agent.runtime as runtime
+    import app.adapters.generation as generation
     from app.chat.persistent.models import ChatQuestion
 
     observed = await seed_real_wiring(db, monkeypatch, empty_hits=True)
@@ -196,7 +197,7 @@ async def test_configured_agent_wiring_runs_real_retriever_and_saves_budget(db, 
         assert data["task"] == "rewrite_query"
         return json.dumps({"query": data["current_query"]})
 
-    monkeypatch.setattr(runtime, "generate_text", generate)
+    monkeypatch.setattr(generation, "generate_text", generate)
     result = await post(create_app(), {"message": "政策是什么？", "session_id": "s1"})
     assert result.status_code == 200, result.text
     body = result.json()

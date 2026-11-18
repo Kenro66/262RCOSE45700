@@ -1,8 +1,8 @@
-"""Isolated tests default to SQLite even when a production DATABASE_URL exists.
+"""隔离测试默认使用临时 SQLite，即使环境中存在生产数据库地址也不例外。
 
-Opt into a disposable PostgreSQL test DB with ISSUE9_TEST_DATABASE_URL and
-ISSUE9_ALLOW_DATABASE_RESET=1. The fixture creates and clears all three tables.
-Never use a shared or production database.
+仅在显式设置 ISSUE9_TEST_DATABASE_URL 和 ISSUE9_ALLOW_DATABASE_RESET=1 时，
+使用可丢弃的 PostgreSQL 测试库。测试夹具会创建并清空文档和聊天相关表。
+禁止使用共享数据库或生产数据库。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
 # 只有显式指定独立测试库并授权重置时，才启用Postgres测试。
-# Production DATABASE_URL must never silently opt the test suite into deleting data.
+# 不能因为设置了生产数据库地址，就让测试自动执行数据清理。
 _TEST_URL = os.environ.get("ISSUE9_TEST_DATABASE_URL", "")
 _USE_POSTGRES = _TEST_URL.startswith("postgresql")
 if _TEST_URL and not _USE_POSTGRES:
@@ -72,7 +72,8 @@ else:
     database.engine = PG_ENGINE
     database.SessionFactory = async_sessionmaker(PG_ENGINE, expire_on_commit=False)
 
-_TABLES = ("chat_submissions", "chat_questions", "chat_sessions", "chunks", "ParsedPage", "documents")
+_TABLES = ("chat_retrieval_attempts", "chat_submissions", "chat_questions", "chat_sessions",
+           "chunks", "ParsedPage", "documents")
 
 
 @pytest_asyncio.fixture()
@@ -82,6 +83,7 @@ async def db():
     SQLite 使用独立临时文件；Postgres 须显式指向可重置的测试库。
     """
     from app.database import Base, SessionFactory, engine, init_db
+    from app.chat.persistent import models  # noqa: F401  显式注册聊天表，支持单独运行测试。
 
     await init_db()
     async with engine.begin() as connection:

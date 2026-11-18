@@ -194,6 +194,12 @@ def python_layout(text: str):
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     source_lines = [line.encode("utf-8") for line in text.splitlines()]
     for node in ast.walk(tree):
+        # 作用域声明只影响编译，不生成运行语句；同一行的其他代码仍需覆盖。
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            before = source_lines[node.lineno - 1][:node.col_offset].strip()
+            after = source_lines[node.end_lineno - 1][node.end_col_offset:].lstrip()
+            if not before and (not after or after.startswith(b"#")):
+                ignored.update(range(node.lineno, node.end_lineno + 1))
         # 局部变量只声明类型、不赋值时不会执行，也不应要求覆盖命中。
         if isinstance(node, ast.AnnAssign) and node.value is None and isinstance(node.target, ast.Name):
             scope = parents.get(node)

@@ -50,7 +50,7 @@ uvicorn app.main:app --env-file .env --host 127.0.0.1 --port 8000
 
 ## 复现联调
 
-先在独立 pgvector/PostgreSQL 18 中创建名称以 `issue68_test` 开头的测试库，执行 070 迁移。安装项目后端及前端锁定依赖；Playwright 仅为可选联调工具，无需加入正式依赖。
+先在独立 pgvector/PostgreSQL 18 中创建名称以 `issue68_test` 开头的测试库，依次执行 070 和 071 迁移。安装项目后端及前端锁定依赖；Playwright 仅为可选联调工具，无需加入正式依赖。
 
 ```sh
 cd backend

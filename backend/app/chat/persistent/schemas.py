@@ -1,6 +1,6 @@
 from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
-from app.contracts import ChatRequest
+from app.contracts import ChatRequest, ChatStatus
 from app.qa.agent.state import AgentChatResponse
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -26,6 +26,17 @@ class PersistentChatRequest(ChatRequest):
 class PersistentChatResponse(AgentChatResponse):
     session_id: str
     execution_status: str
+
+    @model_validator(mode="after")
+    def validate_response(self):
+        # 普通单次问答沿用 answer 字段承载拒答；智能体使用 message 字段。
+        if self.status == ChatStatus.INSUFFICIENT_EVIDENCE and self.answer is not None:
+            if (not self.question_id.strip() or not self.answer.strip() or self.citations
+                    or self.clarification is not None or self.conflict is not None):
+                raise ValueError("Invalid Single insufficient-evidence response")
+            return self
+        AgentChatResponse.model_validate({name: getattr(self, name) for name in AgentChatResponse.model_fields})
+        return self
 
 class ExecutionView(BaseModel):
     session_id: str

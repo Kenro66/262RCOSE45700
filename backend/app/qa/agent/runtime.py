@@ -1,8 +1,7 @@
-"""Read-only production bindings for the independent Agent (no HTTP wiring)."""
+"""独立智能体的只读生产服务绑定，不负责网络接口接线。"""
 
 import json
 from collections.abc import Callable
-
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ...adapters.config import settings
@@ -14,19 +13,21 @@ from .state import AgentState, normalize_agent_state
 
 
 class RealRAG:
-    """One request's bindings; own engine is disposed without touching shared pools.
+    """单次请求的服务绑定；只释放自建引擎，不影响共享连接池。
 
-    Use as an async context manager. All repository calls are reads; this adapter
-    never creates tables, imports documents or saves conversation state.
+    通过异步上下文管理器使用。数据库操作均为只读；
+    本适配器不建表、不导入文档，也不保存会话状态。
     """
 
     def __init__(self, original_question: str, *, conditions: dict | None = None,
-                 session_factory=None, embedder: Callable | None = None, top_k: int | None = None):
+                 session_factory=None, embedder: Callable | None = None, top_k: int | None = None,
+                 document_ids=None):
         self.original_question = original_question
         self.conditions = conditions or {}
         self.session_factory = session_factory
         self.embedder = embedder
         self.top_k = top_k
+        self.document_ids = None if document_ids is None else tuple(document_ids)
         self.current_query: str | None = None
         self.engine: AsyncEngine | None = None
 
@@ -56,14 +57,17 @@ class RealRAG:
         self.current_query = query
 
         async def search(vector, *, top_k):
-            return await search_similar(vector, top_k=top_k, session_factory=self.session_factory)
+            if self.document_ids is None:
+                return await search_similar(vector, top_k=top_k, session_factory=self.session_factory)
+            return await search_similar(vector, top_k=top_k, session_factory=self.session_factory, document_ids=self.document_ids)
 
         return await retrieve(query, search_similar=search, top_k=self.top_k, embedder=self.embedder)
 
     async def documents(self, ids):
         from ...storage.repo import get_documents
 
-        return await get_documents(ids, session_factory=self.session_factory)
+        allowed = ids if self.document_ids is None else [item for item in ids if item in self.document_ids]
+        return await get_documents(allowed, session_factory=self.session_factory)
 
     async def complete(self, hits):
         from ...storage.repo import get_ready_chunk_sources
@@ -72,9 +76,10 @@ class RealRAG:
             raise RuntimeError("Completion requires a preceding retrieval in this request")
 
         async def load(ids):
-            return await get_ready_chunk_sources(ids, session_factory=self.session_factory)
+            allowed = ids if self.document_ids is None else [item for item in ids if item in self.document_ids]
+            return await get_ready_chunk_sources(allowed, session_factory=self.session_factory)
 
-        # Retain original applicability constraints even if a rewrite omits a term.
+        # 即使问题改写遗漏了某个词，也保留原始适用条件。
         context = (self.current_query + "\nOriginal question: " + self.original_question
                    + "\nConditions: " + json.dumps(self.conditions, ensure_ascii=False, sort_keys=True))
         return await complete_evidence(hits, question=context, original_question=self.original_question,
@@ -88,7 +93,7 @@ class RealRAG:
 async def agent_answer_real(question: str, session_id: str | None = None, *,
                             conditions: dict | None = None, question_id: str | None = None,
                             agent_state: AgentState | dict | None = None):
-    """Explicit real-service entry point. No automatic mode switch or fallback."""
+    """显式调用真实服务的入口，不自动切换模式或执行回退。"""
     saved = normalize_agent_state(agent_state)
     merged = {**saved.conditions, **(conditions or {})}
     async with RealRAG(question, conditions=merged) as runtime:

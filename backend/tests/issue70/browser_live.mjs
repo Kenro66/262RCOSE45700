@@ -113,6 +113,9 @@ try {
   assert.equal(await form().locator('select').isDisabled(), true)
   await api('/__test/control', { block: false })
   await until(async () => { const x = (await api(execution(cancelled))).body; return x.execution_status === 'CANCELLED' && x.retryable })
+  const afterCancel = await state(cancelled)
+  assert.equal(afterCancel.state.retrieval_count, 1)
+  assert.equal(afterCancel.state.evidence[0].evidence_id, 'E1')
   await until(async () => !(await form().locator('select').isDisabled()))
   await form().locator('select').selectOption('KR')
   const resumed = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/chat')
@@ -122,7 +125,10 @@ try {
   assert.equal(resumedBody.question_id, cancelled.question_id)
   const saved = (await state(cancelled)).state
   assert.equal(saved.conditions.destination_country, 'KR')
-  assert.equal(saved.retrieval_count, 2)
+  // 已结束的检索计入预算；重提重新核验已保存的证据。
+  assert.equal(saved.retrieval_count, afterCancel.state.retrieval_count)
+  assert.equal(saved.evidence[0].evidence_id, 'E1')
+  assert.equal((await state(cancelled)).embedding_calls, afterCancel.embedding_calls)
   assert.equal(saved.clarification_count, 1)
   void cancelledRequest
   results.push({ case: '取消确认后修改条件、同一问题重提及累计预算', passed: true, state: saved })
