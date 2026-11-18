@@ -1001,6 +1001,15 @@ const sendMessage = () => submitQuestion(input)
 )
 }
 
+function createSessionId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 export default function App() {
   const { t } = useI18n()
   const [page, setPage] = useState<Page>(mockChatEnabled ? 'chat' : 'documents')
@@ -1048,7 +1057,7 @@ useEffect(() => {
 
   return () => { window.clearInterval(timer); documentsRequest.current += 1 }
 }, [])
-  const [conversations, setConversations] = useState<Conversation[]>(() => [{ id: 1, session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }])
+  const [conversations, setConversations] = useState<Conversation[]>(() => [{ id: 1, session_id: createSessionId(), title: '', updatedAt: '', messages: [], isUntitled: true }])
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(1)
   const [sessionListError, setSessionListError] = useState(false)
   useEffect(() => {
@@ -1069,7 +1078,7 @@ useEffect(() => {
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedConversationId) ?? conversations[0] ?? null, [conversations, selectedConversationId])
 
   const newConversation = () => {
-    const conversation: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: t('common.justNow'), messages: [], isUntitled: true }
+    const conversation: Conversation = { id: Date.now(), session_id: createSessionId(), title: '', updatedAt: t('common.justNow'), messages: [], isUntitled: true }
     setConversations((current) => [conversation, ...current])
     setSelectedConversationId(conversation.id)
     setPage('chat')
@@ -1091,7 +1100,7 @@ useEffect(() => {
     if (!mockChatEnabled && (target.persisted || target.messages.length)) {
       await deleteChatSession(target.session_id)
     }
-    const replacement: Conversation = { id: Date.now(), session_id: crypto.randomUUID(), title: '', updatedAt: '', messages: [], isUntitled: true }
+    const replacement: Conversation = { id: Date.now(), session_id: createSessionId(), title: '', updatedAt: '', messages: [], isUntitled: true }
     setConversations(current => {
       const remaining = current.filter(conversation => conversation.id !== conversationId)
       return remaining.length ? remaining : [replacement]
