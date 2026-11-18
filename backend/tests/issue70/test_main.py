@@ -6,7 +6,12 @@ from httpx import ASGITransport, AsyncClient
 import app.main as main
 
 
-def test_default_application_registers_all_six_chat_interfaces():
+@pytest.fixture(autouse=True)
+def enable_agent_mode(monkeypatch):
+    monkeypatch.setenv("RAG_MODE", "agent")
+
+
+def test_explicit_agent_application_registers_all_six_chat_interfaces():
     application = main.create_app()
     paths = application.openapi()["paths"]
     expected = {

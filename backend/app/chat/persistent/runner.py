@@ -79,7 +79,8 @@ class ChatRunner:
             if isinstance(getattr(exc, "state", None), AgentState):
                 await checkpoint(exc.state)
                 progress["reliable"] = True
-            if isinstance(exc, AgentStopped):
+            # #65 的依赖边界可能重新包装 AgentStopped；本接入层的停止信号仍是取消依据。
+            if isinstance(exc, AgentStopped) or stop_event.is_set():
                 await self.store.finish(question_id, self.worker_id, "CANCELLED", error_code="CANCELLED", state_reliable=progress["reliable"])
                 return
             raise

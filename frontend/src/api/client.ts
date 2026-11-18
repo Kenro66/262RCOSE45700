@@ -1,4 +1,6 @@
 const API_BASE_URL = '/api'
+import type { AgentResponse, ChatRequest } from '../chat/contracts'
+import { mockChatEnabled } from '../chat/mock-mode'
 
 export class ApiError extends Error {
   constructor(
@@ -14,11 +16,14 @@ export async function apiRequest<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (mockChatEnabled) {
+    if (path === '/documents' && (!options.method || options.method === 'GET')) return [] as T
+    throw new Error('Document mutations are disabled in chat mock mode')
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, options)
 
-  const data: unknown = response.status === 204
-    ? null
-    : await response.json()
+  const body = await response.text()
+  const data: unknown = body ? JSON.parse(body) : null
 
   if (!response.ok) {
     throw new ApiError(response.status, data)
@@ -34,6 +39,7 @@ export async function apiRequest<T>(
 
 // 定义后端返回的 PDF 文件信息格式
 export type ApiDocument = {
+  country?: 'CN' | 'KR' | null
   document_id: string           // 文件唯一 ID，删除文件时使用
   filename: string              // PDF 文件名
   status: 'READY' | 'PROCESSING' | 'FAILED'  // 文件处理状态
@@ -72,9 +78,9 @@ export function uploadDocument(file: File): Promise<ApiDocument> {
 // ========================================
 
 // 使用后端返回的 document_id 删除真实文件
-export function deleteDocument(documentId: string): Promise<unknown> {
+export function deleteDocument(document_id: string): Promise<unknown> {
   return apiRequest<unknown>(
-    `/documents/${encodeURIComponent(documentId)}`,
+    `/documents/${encodeURIComponent(document_id)}`,
     {
       method: 'DELETE',
     }
@@ -129,26 +135,54 @@ export type ApiChatCitation = {
   quote: string
 }
 
-export type ApiChatResponse = {
-  status:
-    | 'ANSWERED'
-    | 'INSUFFICIENT_EVIDENCE'
-    | 'NO_READY_DOCUMENTS'
-    | 'SYSTEM_ERROR'
-  answer: string | null
-  citations: ApiChatCitation[]
-  message: string | null
-}
+export type ApiChatResponse = AgentResponse
 
-export function sendChatMessage(message: string, signal?: AbortSignal): Promise<ApiChatResponse> {
+export async function sendChatMessage(payload: ChatRequest, signal?: AbortSignal): Promise<ApiChatResponse> {
+  if (mockChatEnabled) {
+    const { sendMockChat } = await import('../mocks/chat-transport')
+    return sendMockChat(payload, signal ?? new AbortController().signal, document.documentElement.lang === 'ko-KR')
+  }
   return apiRequest<ApiChatResponse>('/chat', {
     method: 'POST',
     signal,
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      message,
-    }),
+    body: JSON.stringify(payload),
   })
 }
+
+export type ChatSessionSummary = { session_id: string; title?: string; updated_at?: string }
+export type ChatExecution = {
+  execution_status: string
+  retryable: boolean
+  response: ApiChatResponse | null
+}
+export type ChatSessionDetail = ChatSessionSummary & {
+  questions: {
+    question_id: string
+    message: string
+    clarification?: AgentResponse['clarification']
+    conditions?: Record<string, string>
+  }[]
+}
+
+function sessionPath(sessionId: string) {
+  return `/chat/sessions/${encodeURIComponent(sessionId)}`
+}
+
+function questionPath(sessionId: string, questionId: string) {
+  return `${sessionPath(sessionId)}/questions/${encodeURIComponent(questionId)}`
+}
+
+export async function getChatSessions(): Promise<ChatSessionSummary[]> {
+  const { sessions } = await apiRequest<{ sessions: ChatSessionSummary[] }>('/chat/sessions')
+  return sessions
+}
+export const getChatSession = (sessionId: string) => apiRequest<ChatSessionDetail>(sessionPath(sessionId))
+export const getChatExecution = (sessionId: string, questionId: string) =>
+  apiRequest<ChatExecution>(`${questionPath(sessionId, questionId)}/execution`)
+export const cancelChatExecution = (sessionId: string, questionId: string) =>
+  apiRequest<ChatExecution>(`${questionPath(sessionId, questionId)}/cancel`, { method: 'POST' })
+export const deleteChatSession = (sessionId: string) =>
+  apiRequest<void>(sessionPath(sessionId), { method: 'DELETE' })

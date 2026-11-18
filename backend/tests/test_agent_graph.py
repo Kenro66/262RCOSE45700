@@ -1,6 +1,7 @@
 """Deterministic full-graph tests: no models, embeddings or business database."""
 
 import asyncio
+import inspect
 import json
 import socket
 from unittest.mock import AsyncMock
@@ -12,7 +13,9 @@ from pydantic import ValidationError
 from app.contracts import ChatResponse, ChatStatus, Chunk, SearchHit
 from app.qa.agent import AgentError, AgentResult, AgentState, agent_answer
 from app.qa.agent.graph import build_graph
-from app.qa.agent.nodes import Dependencies, Nodes
+from app.qa.agent.nodes import AgentErrorType, Dependencies, Nodes
+from app.adapters.generation import GenerationError
+from app.qa.retriever import RetrievalError
 from app.qa.agent.state import CachedEvidence
 from app.qa.evidence_completion import SupplementalEvidence
 
@@ -494,3 +497,327 @@ async def test_condition_prompts_distinguish_general_rules_from_personal_eligibi
 def test_invalid_state_and_id_only_cache_are_rejected(state):
     with pytest.raises(ValidationError):
         AgentState(**state)
+
+
+def exception_chain(error):
+    chain = []
+    while error is not None:
+        chain.append(error)
+        error = error.__cause__
+    return chain
+
+
+def test_agent_error_legacy_constructor_and_derived_read_only_eligibility():
+    error = AgentError('legacy message')
+    assert str(error) == 'legacy message'
+    assert error.failed_node is None and error.error_type is AgentErrorType.UNKNOWN_ERROR
+    assert not error.fallback_eligible and error.state is None and error.trace is None
+    for kind in AgentErrorType:
+        classified = AgentError('message', error_type=kind)
+        assert classified.fallback_eligible is (kind is AgentErrorType.AGENT_WORKFLOW_ERROR)
+        with pytest.raises(AttributeError):
+            classified.fallback_eligible = not classified.fallback_eligible
+        with pytest.raises(AttributeError):
+            classified.error_type = AgentErrorType.AGENT_WORKFLOW_ERROR
+    with pytest.raises(TypeError):
+        AgentError('message', fallback_eligible=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('query', ['', '   '])
+async def test_blank_rewrite_is_workflow_error_not_shared_generation(query):
+    deps = dependencies(MockLLM(sufficient_at=99, overrides={'rewrite_query': json.dumps({'query': query})}))
+    with pytest.raises(AgentError) as caught:
+        await run(deps)
+    error = caught.value
+    assert error.failed_node == 'rewrite_query'
+    assert error.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR and error.fallback_eligible
+    assert error.state.retrieval_count == 1
+    assert error.trace[-1] == 'rewrite_query'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('raw', ['not JSON', '{"query": "ok", "extra": true}', '{"query": 123}'])
+async def test_successful_generation_invalid_agent_schema_keeps_original_cause(raw):
+    llm = MockLLM(sufficient_at=99, overrides={'rewrite_query': raw})
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(llm))
+    error = caught.value
+    assert error.failed_node == 'rewrite_query'
+    assert error.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR and error.fallback_eligible
+    assert any(isinstance(e, (json.JSONDecodeError, ValidationError)) for e in exception_chain(error))
+    assert error.trace[-1] == 'rewrite_query' and error.state.retrieval_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('asynchronous', [False, True])
+@pytest.mark.parametrize('failure', ['rate_limit', 'connection', 'timeout', 'adapter_response', 'adapter_json'])
+async def test_rewrite_shared_generation_failures_never_eligible(asynchronous, failure):
+    request = httpx.Request('POST', 'https://synthetic.invalid/v1/chat/completions')
+    errors = {
+        'rate_limit': httpx.HTTPStatusError('synthetic', request=request,
+                                          response=httpx.Response(429, request=request)),
+        'connection': httpx.ConnectError('synthetic', request=request),
+        'timeout': httpx.ReadTimeout('synthetic', request=request),
+        'adapter_response': GenerationError('synthetic invalid HTTP envelope'),
+        'adapter_json': json.JSONDecodeError('synthetic envelope', 'invalid', 0),
+    }
+    original = errors[failure]
+    llm = MockLLM(sufficient_at=99)
+    failed_calls = []
+    def generate(messages):
+        if json.loads(messages[-1]['content'])['task'] == 'rewrite_query':
+            failed_calls.append(True)
+            raise original
+        return llm(messages)
+    async def async_generate(messages):
+        return generate(messages)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(async_generate if asynchronous else generate))
+    error = caught.value
+    assert error.failed_node == 'rewrite_query'
+    assert error.error_type is AgentErrorType.SHARED_GENERATION_ERROR and not error.fallback_eligible
+    assert error.__cause__ is original and failed_calls == [True]
+    assert error.state.retrieval_count == 1 and error.trace[-1] == 'rewrite_query'
+
+
+@pytest.mark.asyncio
+async def test_shared_generation_error_at_answer_does_not_use_answer_repair():
+    llm = MockLLM()
+    failed_calls = []
+    def generate(messages):
+        if json.loads(messages[-1]['content'])['task'] == 'generate_answer':
+            failed_calls.append(True)
+            raise GenerationError('shared service unavailable')
+        return llm(messages)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(generate))
+    assert caught.value.failed_node == 'generate_answer'
+    assert caught.value.error_type is AgentErrorType.SHARED_GENERATION_ERROR
+    assert not caught.value.fallback_eligible and failed_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_agent_answer_json_failure_still_uses_exactly_one_repair():
+    llm = MockLLM(overrides={'generate_answer': 'not JSON'})
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(llm))
+    assert caught.value.failed_node == 'generate_answer'
+    assert caught.value.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR
+    assert caught.value.fallback_eligible
+    assert sum(c['task'] == 'generate_answer' for c in llm.calls) == 2
+    assert any(isinstance(e, json.JSONDecodeError) for e in exception_chain(caught.value))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('metadata', [False, True])
+async def test_shared_retrieval_and_document_dependency_origin(metadata):
+    original = ConnectionError('synthetic database connection')
+    deps = dependencies()
+    deps['get_documents_fn' if metadata else 'retrieve_fn'] = AsyncMock(side_effect=original)
+    with pytest.raises(AgentError) as caught:
+        await run(deps)
+    error = caught.value
+    assert error.failed_node == ('check_evidence' if metadata else 'retrieve')
+    assert error.error_type is AgentErrorType.SHARED_RETRIEVAL_ERROR and not error.fallback_eligible
+    assert error.state.retrieval_count == 1 and error.trace[-1] == error.failed_node
+    assert error.__cause__ is original
+
+
+@pytest.mark.asyncio
+async def test_unknown_node_failure_is_conservative_regardless_of_message(monkeypatch):
+    original = RuntimeError('shared generation workflow failed')
+    async def broken(self, state):
+        raise original
+    monkeypatch.setattr(Nodes, 'check_applicability', broken)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies())
+    error = caught.value
+    assert error.error_type is AgentErrorType.UNKNOWN_ERROR and not error.fallback_eligible
+    assert error.failed_node == 'check_applicability'
+    assert error.__cause__ is original and error.trace[-1] == error.failed_node
+    assert error.state.retrieval_count == 1 and error.state.evidence
+
+
+@pytest.mark.asyncio
+async def test_pre_node_graph_failure_has_no_failed_node(monkeypatch):
+    import app.qa.agent.service as service
+    original = RuntimeError('synthetic graph construction failure')
+    def fail_build(nodes):
+        raise original
+    monkeypatch.setattr(service, 'build_graph', fail_build)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies())
+    assert caught.value.failed_node is None and caught.value.trace == []
+    assert caught.value.state.retrieval_count == 0
+    assert caught.value.error_type is AgentErrorType.UNKNOWN_ERROR and not caught.value.fallback_eligible
+    assert caught.value.__cause__ is original
+
+
+@pytest.mark.asyncio
+async def test_post_graph_failure_not_attributed_to_last_successful_node(monkeypatch):
+    import app.qa.agent.service as service
+    original = RuntimeError('synthetic response assembly failure')
+    def fail_response(**kwargs):
+        raise original
+    monkeypatch.setattr(service, 'AgentChatResponse', fail_response)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies())
+    assert caught.value.failed_node is None and caught.value.trace[-1] == 'finalize'
+    assert caught.value.error_type is AgentErrorType.UNKNOWN_ERROR and not caught.value.fallback_eligible
+    assert caught.value.__cause__ is original and caught.value.state.retrieval_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('typed', [False, True])
+async def test_completion_failure_policy_unchanged_with_conservative_classification(typed):
+    original = RetrievalError('synthetic source read failure') if typed else RuntimeError('untyped completion failure')
+    completion = AsyncMock(side_effect=original)
+    with pytest.raises(AgentError) as caught:
+        await run(dependencies(), complete_evidence_fn=completion)
+    assert caught.value.failed_node == 'retrieve'
+    assert caught.value.error_type is (AgentErrorType.SHARED_RETRIEVAL_ERROR if typed else AgentErrorType.UNKNOWN_ERROR)
+    assert not caught.value.fallback_eligible and caught.value.state.retrieval_count == 1
+    assert caught.value.__cause__ is original and completion.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('dependency', ['retrieve_fn', 'get_documents_fn', 'generate_fn'])
+async def test_dependency_cancellation_not_wrapped(dependency):
+    deps = dependencies()
+    deps[dependency] = AsyncMock(side_effect=asyncio.CancelledError())
+    with pytest.raises(asyncio.CancelledError):
+        await run(deps)
+
+
+@pytest.mark.asyncio
+async def test_langgraph_node_cancelled_error_keeps_existing_cancel_semantics():
+    from langgraph.errors import NodeCancelledError
+    deps = dependencies()
+    deps['generate_fn'] = AsyncMock(side_effect=NodeCancelledError('synthetic cancellation'))
+    with pytest.raises(asyncio.CancelledError):
+        await run(deps)
+
+
+@pytest.mark.asyncio
+async def test_typed_generation_failure_in_completion_is_not_classified_by_node_name():
+    original = GenerationError('synthetic shared generation failure')
+    completion = AsyncMock(side_effect=original)
+    deps = dependencies()
+    with pytest.raises(AgentError) as caught:
+        await run(deps, complete_evidence_fn=completion)
+    error = caught.value
+    assert error.failed_node == 'retrieve'
+    assert error.error_type is AgentErrorType.SHARED_GENERATION_ERROR
+    assert not error.fallback_eligible and error.__cause__ is original
+    assert error.state.retrieval_count == 1 and error.trace[-1] == 'retrieve'
+    deps['retrieve_fn'].assert_awaited_once()
+    completion.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_declared_async_generator_must_actually_return_an_awaitable():
+    calls = []
+
+    @inspect.markcoroutinefunction
+    def malformed_generator(messages):
+        calls.append(json.loads(messages[-1]['content'])['task'])
+        return '{"missing_conditions": []}'
+
+    deps = dependencies(malformed_generator)
+    with pytest.raises(AgentError) as caught:
+        await run(deps)
+    error = caught.value
+    assert calls == ['check_conditions']
+    assert error.failed_node == 'check_conditions'
+    assert error.error_type is AgentErrorType.SHARED_GENERATION_ERROR
+    assert not error.fallback_eligible and isinstance(error.__cause__, TypeError)
+    assert error.state.retrieval_count == 0 and error.trace == ['check_conditions']
+    deps['retrieve_fn'].assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_generator_factory_returning_awaitable_executes_the_real_graph():
+    llm = MockLLM()
+    awaited = []
+
+    async def generate(messages):
+        await asyncio.sleep(0)
+        awaited.append(json.loads(messages[-1]['content'])['task'])
+        return llm(messages)
+
+    def factory(messages):
+        return generate(messages)
+
+    deps = dependencies(factory)
+    result = await run(deps)
+    assert result.trace == NORMAL and result.response.status == ChatStatus.ANSWERED
+    assert awaited == ['check_conditions', 'check_evidence', 'check_applicability',
+                       'check_conflict', 'generate_answer']
+    assert result.state.retrieval_count == 1
+    assert result.response.citations[0].quote == hit().text
+    deps['retrieve_fn'].assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('raw', [None, {}, b'{}'])
+async def test_successful_nontext_answer_is_workflow_failure_without_extra_service_call(raw):
+    llm = MockLLM()
+    calls = []
+
+    def generate(messages):
+        if json.loads(messages[-1]['content'])['task'] == 'generate_answer':
+            calls.append(True)
+            return raw
+        return llm(messages)
+
+    with pytest.raises(AgentError, match='must return JSON text') as caught:
+        await run(dependencies(generate))
+    error = caught.value
+    assert error.failed_node == 'generate_answer'
+    assert error.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR and error.fallback_eligible
+    assert calls == [True]  # This is not a JSON parsing error or a network retry.
+    assert error.state.retrieval_count == 1 and error.state.evidence_ids == ['E1']
+    assert error.trace[-1] == 'generate_answer'
+
+
+@pytest.mark.asyncio
+async def test_finalizer_rejects_missing_business_status_as_workflow_error():
+    deps = dependencies()
+    nodes = Nodes(Dependencies(deps['retrieve_fn'], deps['get_documents_fn'], deps['generate_fn']))
+    with pytest.raises(AgentError, match='without a business status') as caught:
+        await nodes.tracked('finalize')({'status': None, 'trace': []})
+    assert caught.value.failed_node == 'finalize'
+    assert caught.value.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR
+    assert caught.value.fallback_eligible
+    assert nodes.latest['trace'] == ['finalize'] and nodes.latest['status'] is None
+    deps['retrieve_fn'].assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_unknown_conflict_id_if_graph_result_contract_is_broken(monkeypatch):
+    import app.qa.agent.service as service
+    original_build = service.build_graph
+
+    def build_with_corrupt_result(nodes):
+        graph = original_build(nodes)
+
+        class CorruptResult:
+            async def ainvoke(self, *args, **kwargs):
+                final = await graph.ainvoke(*args, **kwargs)
+                # Fault injection at the service boundary, after all real graph nodes ran.
+                return {**final, 'conflict': final['conflict'].model_copy(update={'side_b': ['E999']})}
+
+        return CorruptResult()
+
+    monkeypatch.setattr(service, 'build_graph', build_with_corrupt_result)
+    deps = dependencies(MockLLM(conflict=True), [[hit(), hit(2)]],
+                        {'doc_1': document(), 'doc_2': document(2)})
+    with pytest.raises(AgentError, match='Conflict references unknown evidence') as caught:
+        await run(deps)
+    error = caught.value
+    assert error.error_type is AgentErrorType.AGENT_WORKFLOW_ERROR and error.fallback_eligible
+    assert error.failed_node is None  # The graph completed; this is response assembly.
+    assert error.trace == NORMAL[:5] + ['finalize']
+    assert error.state.retrieval_count == 1 and error.state.evidence_ids == ['E1', 'E2']
+    deps['retrieve_fn'].assert_awaited_once()

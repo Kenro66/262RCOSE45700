@@ -7,6 +7,8 @@ from app.chat.persistent.models import ChatQuestion
 from app.chat.persistent.runner import ChatRunner
 from app.chat.persistent.schemas import PersistentChatRequest
 from app.qa.agent.state import AgentChatResponse, AgentResult, AgentState
+from app.qa.agent.nodes import AgentError, AgentErrorType
+from app.chat.persistent.cancellation import AgentStopped
 from .conftest import QUESTION, question_url, response
 
 pytestmark = pytest.mark.asyncio
@@ -132,3 +134,21 @@ async def test_storage_still_unavailable_returns_error_instead_of_hanging(web, m
     monkeypatch.setattr(web.store, "finish", unavailable)
     result = await asyncio.wait_for(web.client.get(question_url(record["question_id"]) + "/execution"), 2)
     assert result.status_code == 500 and result.json()["error_code"] == "SYSTEM_ERROR"
+
+
+@pytest.mark.parametrize("error_type", [AgentErrorType.SHARED_RETRIEVAL_ERROR, AgentErrorType.SHARED_GENERATION_ERROR])
+async def test_explicit_stop_survives_agent_dependency_error_wrapping(db, error_type):
+    async def execute(data, checkpoint):
+        data["stop_event"].set()
+        error = AgentError("依赖边界重新包装取消异常", error_type=error_type)
+        error.state = AgentState.model_validate(data["state"])
+        raise error from AgentStopped("主动取消")
+
+    runner = ChatRunner(db.store, execute)
+    record, _ = await db.store.reserve(PersistentChatRequest(message=QUESTION), runner.worker_id)
+    progress = {"reliable": False}
+    await runner._execute(record["question_id"], progress, asyncio.Event())
+    saved = await db.store.get_execution(record["question_id"])
+    assert saved["execution_status"] == "CANCELLED"
+    assert saved["error_code"] == "CANCELLED" and saved["retryable"]
+    assert saved["response"] is None and progress["reliable"]
