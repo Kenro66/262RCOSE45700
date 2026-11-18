@@ -175,6 +175,7 @@ function Sidebar({
   documents,
   conversations,
   selectedConversationId,
+  sessionListError,
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
@@ -184,6 +185,7 @@ function Sidebar({
   documents: DocumentItem[]
   conversations: Conversation[]
   selectedConversationId: number | null
+  sessionListError: boolean
   onSelectConversation: (id: number) => void
   onNewConversation: () => void
   onDeleteConversation: (conversation: Conversation) => Promise<void>
@@ -209,6 +211,7 @@ function Sidebar({
         <div className="conversation-history">
           <div className="history-heading"><span>{t('history.title')}</span><span>{t('history.feature')}</span></div>
           <Button variant="default" className="new-conversation" onClick={onNewConversation}><span className="plus-symbol">+</span><span>{t('history.new')}</span></Button>
+          {sessionListError && <p className="history-empty" role="alert">{t('exception.system.body')}</p>}
           <div className="history-list">
             {conversations.map((conversation) => (
               <div
@@ -1117,12 +1120,12 @@ useEffect(() => {
         documents={documents}
         conversations={conversations}
         selectedConversationId={selectedConversation?.id ?? null}
+        sessionListError={sessionListError}
         onSelectConversation={setSelectedConversationId}
         onNewConversation={newConversation}
         onDeleteConversation={deleteConversation}
       />
 
-      {page === 'chat' && sessionListError && <p role="alert">{t('exception.system.body')}</p>}
       {page === 'documents' && (
         <DocumentsPage
           documentsError={documentsError}

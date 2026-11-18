@@ -176,8 +176,14 @@ function questionPath(sessionId: string, questionId: string) {
 }
 
 export async function getChatSessions(): Promise<ChatSessionSummary[]> {
-  const { sessions } = await apiRequest<{ sessions: ChatSessionSummary[] }>('/chat/sessions')
-  return sessions
+  try {
+    const { sessions } = await apiRequest<{ sessions: ChatSessionSummary[] }>('/chat/sessions')
+    return sessions
+  } catch (error) {
+    // Single mode does not register the saved-session endpoints.
+    if (error instanceof ApiError && error.status === 404) return []
+    throw error
+  }
 }
 export const getChatSession = (sessionId: string) => apiRequest<ChatSessionDetail>(sessionPath(sessionId))
 export const getChatExecution = (sessionId: string, questionId: string) =>
