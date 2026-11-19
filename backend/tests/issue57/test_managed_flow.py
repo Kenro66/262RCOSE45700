@@ -20,6 +20,7 @@ from app.chat.persistent.models import ChatQuestion, ChatRetrievalAttempt, ChatS
 from app.chat.persistent.runner import ChatRunner
 from app.chat.persistent.schemas import PersistentChatRequest, PersistentChatResponse
 from app.contracts import ChatResponse, ChatStatus
+from app.adapters.generation import generate_text as provider_generate_text
 from app.qa.agent.nodes import AgentError, AgentErrorType
 from app.storage.models import Document
 from .conftest import hit
@@ -154,6 +155,77 @@ async def test_managed_native_agent_preserves_controlled_single_routing(executio
     async with execution.factory() as session:
         submission = await session.get(ChatSubmission, execution.qid)
         assert submission.fallback_started is (failure == "workflow")
+
+
+@pytest.mark.parametrize("profile", ["furiosa_gemma", "legacy"])
+@pytest.mark.parametrize("workflow_failure", [False, True])
+async def test_http_native_profile_fallback_uses_single_messages_and_same_provider(
+        database, services, monkeypatch, profile, workflow_failure):
+    """Real HTTP routing/graph/store/adapter; only external IO is Fake/Mock."""
+    import httpx
+    from app.adapters import config, generation
+    raw = {"GENERATION_PROFILE": profile, "FURIOSA_API_KEY": "synthetic-furiosa",
+           "GENERATION_MODEL": "synthetic-legacy", "GENERATION_BASE_URL": "https://legacy.invalid/v1",
+           "GENERATION_API_KEY": "synthetic-legacy-key", "GENERATION_TIMEOUT_SECONDS": "3",
+           "AGENT_GENERATION_JSON_SCHEMA_ENABLED": "true"}
+    calls = []
+    client_type = httpx.Client
+    expected_model = config.GEMMA_MODEL if profile == "furiosa_gemma" else raw["GENERATION_MODEL"]
+    expected_base = config.GEMMA_BASE_URL if profile == "furiosa_gemma" else raw["GENERATION_BASE_URL"]
+
+    def respond(request):
+        payload = json.loads(request.content)
+        assert str(request.url) == expected_base + "/chat/completions"
+        assert payload["model"] == expected_model
+        try:
+            data = json.loads(payload["messages"][-1]["content"])
+            task = data["task"]
+        except (ValueError, KeyError):
+            task = "single"
+        calls.append((task, payload))
+        if task == "single":
+            assert "response_format" not in payload
+            assert "Confirmed applicability conditions" in payload["messages"][-1]["content"]
+            content = json.dumps({"answer": "测试规则原文。[E1]", "insufficient_evidence": False})
+        else:
+            assert payload["response_format"]["json_schema"]["strict"] is True
+            if task == "check_evidence":
+                assert payload["response_format"]["json_schema"]["schema"]["$defs"]["EvidenceSupport"]["properties"]["chunk_id"]["enum"] == ["c1"]
+                content = "not json" if workflow_failure else json.dumps(assessment())
+            elif task in ("check_conditions", "check_applicability"):
+                content = '{"missing_conditions":[]}'
+            elif task == "check_conflict":
+                content = '{"conflict":null}'
+            else:
+                assert task == "generate_answer"
+                content = json.dumps({"answer": "测试规则原文。[E1]", "insufficient_evidence": False})
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(config, "settings", lambda: raw)
+    monkeypatch.setattr(generation, "settings", lambda: raw)
+    monkeypatch.setattr(generation, "generate_text", provider_generate_text)
+    monkeypatch.setattr("app.qa.agent.generation.generate_text", provider_generate_text)
+    monkeypatch.setattr(generation.httpx, "Client", lambda **kw: client_type(transport=httpx.MockTransport(respond), **kw))
+    runner = ChatRunner(database.store)
+    app = FastAPI()
+    app.include_router(build_persistent_chat_router(database.store, runner), prefix="/api")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/chat", json={"message": "测试规则如何适用？"})
+    finally:
+        await runner.close()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["execution_status"] == "SUCCEEDED" and body["status"] == "ANSWERED"
+    assert body["citations"][0]["evidence_id"] == "E1"
+    assert body["citations"][0]["quote"] == "测试规则原文。"
+    assert sum(task == "single" for task, _ in calls) == int(workflow_failure)
+    async with database.factory() as session:
+        submission = await session.scalar(select(ChatSubmission).where(ChatSubmission.question_id == body["question_id"]))
+        question = await session.get(ChatQuestion, body["question_id"])
+        assert submission.fallback_started is workflow_failure
+        assert question.retrieval_used == 1 + int(workflow_failure) <= 3
+        assert question.state["clarification_count"] == 0
 
 
 @pytest.mark.parametrize("insufficient", [False, True])
