@@ -42,9 +42,10 @@ from app.qa.agent.state import AgentChatResponse, AgentState, Clarification
 QUESTION = "免税额度是多少？"
 
 
-def prompt():
+def prompt(field="country"):
     return Clarification.model_validate({"questions": [
-        {"field": "country", "question": "目的地？", "type": "select", "options": ["CN", "KR"]}
+        {"field": field, "question": "目的地？" if field == "country" else "政策适用国家？",
+         "type": "select", "options": ["CN", "KR"]}
     ]})
 
 
@@ -131,7 +132,7 @@ async def web(db, monkeypatch):
                 return json.dumps({"query": data["current_query"]})
             questions = control.extra_questions
             if questions is None:
-                questions = [] if data["conditions"] else prompt().model_dump()["questions"]
+                questions = [] if data["conditions"] else prompt(field="destination_country").model_dump()["questions"]
             return json.dumps({"missing_conditions": questions})
 
         def dependencies(self):
@@ -156,8 +157,8 @@ async def ask(web, session="sessionA"):
     return result.json()
 
 
-def submission(qid, country="CN", session="sessionA"):
-    return {"session_id": session, "question_id": qid, "message": QUESTION, "conditions": {"country": country}}
+def submission(qid, country="CN", session="sessionA", *, field="country"):
+    return {"session_id": session, "question_id": qid, "message": QUESTION, "conditions": {field: country}}
 
 
 def question_url(qid, session="sessionA"):

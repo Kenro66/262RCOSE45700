@@ -13,6 +13,54 @@ from .conftest import hit
 pytestmark = pytest.mark.asyncio
 
 
+async def test_http_guard_routes_agent_profile_but_not_single_fallback(execution, monkeypatch):
+    from unittest.mock import Mock
+    agent = Mock(return_value="agent-result")
+    single = Mock(return_value="single-result")
+    builder = Mock(return_value=agent)
+    monkeypatch.setattr("app.qa.agent.generation.agent_generator", builder)
+    monkeypatch.setattr("app.adapters.generation.generate_text", single)
+    runtime = SimpleNamespace()
+    message = [{"content": "synthetic"}]
+    assert await execution.guard.dependencies(runtime)["generate_fn"](message) == "agent-result"
+    assert await execution.guard.dependencies(runtime, "FALLBACK")["generate_fn"](message) == "single-result"
+    assert builder.call_count == 1
+    agent.assert_called_once_with(message)
+    single.assert_called_once_with(message)
+    assert execution.progress.state.retrieval_count == 0
+    execution.stop.set()
+    with pytest.raises(ExecutionStopped):
+        await execution.guard.dependencies(runtime)["generate_fn"](message)
+    assert agent.call_count == 1
+
+
+async def test_shared_gemma_profile_keeps_http_agent_and_flow_fallback_on_gemma(execution, monkeypatch):
+    import json
+    import httpx
+    from app.adapters import config, generation
+    from tests.test_generation import gemma_profile
+    calls = []
+    client = httpx.Client
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        assert str(request.url) == config.GEMMA_BASE_URL + "/chat/completions"
+        assert body["model"] == config.GEMMA_MODEL and body["max_tokens"] == 2048
+        content = '{"missing_conditions":[]}' if "response_format" in body else '{"answer":"测试。[E1]","insufficient_evidence":false}'
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+    monkeypatch.setattr(config, "settings", gemma_profile)
+    monkeypatch.setattr(generation, "settings", gemma_profile)
+    monkeypatch.setattr(generation.httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(respond), **kw))
+    runtime = SimpleNamespace()
+    envelope = [{"role": "user", "content": json.dumps({"task": "check_conditions", "evidence": []})}]
+    result = await execution.guard.dependencies(runtime)["generate_fn"](envelope)
+    assert json.loads(result) == {"missing_conditions": []}
+    result = await execution.guard.dependencies(runtime, "FALLBACK")["generate_fn"]([{"role": "user", "content": "synthetic"}])
+    assert json.loads(result)["answer"] == "测试。[E1]"
+    assert len(calls) == 2 and "response_format" in calls[0] and "response_format" not in calls[1]
+    assert execution.progress.state.retrieval_count == 0
+
+
 async def test_guard_accepts_sync_async_and_sync_returning_awaitable(execution):
     async def async_value(value):
         return value + 1

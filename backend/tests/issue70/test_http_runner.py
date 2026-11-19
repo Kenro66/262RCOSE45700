@@ -9,9 +9,14 @@ from app.chat.persistent.runner import ChatRunner
 from app.chat.persistent.schemas import PersistentChatRequest
 from app.qa.agent.nodes import AgentError
 from app.qa.agent.state import AgentChatResponse, AgentResult, AgentState
-from .conftest import QUESTION, ask, prompt, question_url, submission
+from .conftest import QUESTION, ask, prompt, question_url, submission as saved_submission
 
 pytestmark = pytest.mark.asyncio
+
+
+def submission(qid, country="CN", session="sessionA"):
+    # New Agent outputs use canonical fields; Store's legacy fixtures stay unchanged.
+    return saved_submission(qid, country, session, field="destination_country")
 
 
 async def test_first_question_and_followup_use_real_agent(web):
@@ -21,11 +26,36 @@ async def test_first_question_and_followup_use_real_agent(web):
     assert result.status_code == 200 and result.json()["status"] == "INSUFFICIENT_EVIDENCE"
     assert len(web.control.retrievals) == 1
     query = web.control.retrievals[0]
-    assert query.startswith(QUESTION) and '"country": "CN"' in query
+    assert query.startswith(QUESTION) and '"destination_country": "CN"' in query
     async with web.db.factory() as session:
         stored = await session.get(ChatQuestion, first["question_id"])
         assert stored.question == QUESTION
         assert stored.state["clarification_count"] == stored.state["retrieval_count"] == 1
+
+
+async def test_http_p001_explicit_preface_message_only_reaches_retrieval_without_reasking(web):
+    """Mock regression for the actual failed input boundary, not policy accuracy."""
+    from pathlib import Path
+    import json
+    pilot = json.loads((Path(__file__).resolve().parents[3] / "eval/pilot43_questions_v1_40.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    message = "적용 조건: 한국 입국; 일반 여행자; 별도면세 대상 제외.\n" + pilot["question"]
+    web.control.extra_questions = [
+        {"field": "destination_country", "question": "정책 국가?", "type": "select", "options": ["CN", "KR"]},
+        {"field": "direction", "question": "통관 방향?", "type": "select", "options": ["INBOUND", "OUTBOUND"]},
+    ]
+    result = await web.client.post("/api/chat", json={"message": message})
+    assert result.status_code == 200
+    body = result.json()
+    # This Fake deliberately returns no search hits: no claim of an ANSWERED/gold PASS.
+    assert body["status"] == "INSUFFICIENT_EVIDENCE" and body["clarification"] is None
+    assert len(web.control.retrievals) == 1 and web.control.retrievals[0] == message
+    first_input = web.control.generations[0]
+    assert first_input["question"] == message and first_input["conditions"] == {}
+    assert first_input["confirmed_conditions"] == {"destination_country": "KR", "direction": "INBOUND"}
+    async with web.db.factory() as session:
+        stored = await session.get(ChatQuestion, body["question_id"])
+        assert stored.question == message and stored.state["conditions"] == {}
+        assert stored.state["clarification_count"] == 0 and stored.state["retrieval_count"] == 1
 
 
 async def test_no_ready_documents_never_calls_agent_services(web):
@@ -33,6 +63,30 @@ async def test_no_ready_documents_never_calls_agent_services(web):
     first = await ask(web)
     assert first["status"] == "NO_READY_DOCUMENTS"
     assert web.control.retrievals == web.control.generations == []
+
+
+async def test_a06_message_only_and_a07_restore_do_not_reask_independent_direction(web):
+    question = "我是成年普通旅客，携带自用香水入境，香水的单独免税数量上限是多少？"
+    web.control.extra_questions = [
+        {"field": "destination_country", "question": "国家？", "type": "select", "options": ["CN", "KR"]},
+        {"field": "direction", "question": "方向？", "type": "select", "options": ["INBOUND", "OUTBOUND"]},
+    ]
+    first = await web.client.post("/api/chat", json={"message": question})
+    assert first.status_code == 200
+    body = first.json()
+    assert body["status"] == "NEEDS_CLARIFICATION"
+    assert [q["field"] for q in body["clarification"]["questions"]] == ["destination_country"]
+    assert not web.control.retrievals
+    second = await web.client.post("/api/chat", json={"message": question, "session_id": body["session_id"],
+        "question_id": body["question_id"], "conditions": {"destination_country": "KR"}})
+    assert second.status_code == 200
+    # Existing Fake returns no evidence: refusal is expected, not a policy gold PASS.
+    assert second.json()["status"] == "INSUFFICIENT_EVIDENCE" and second.json()["clarification"] is None
+    assert second.json()["question_id"] == body["question_id"] and second.json()["session_id"] == body["session_id"]
+    async with web.db.factory() as session:
+        state = (await session.get(ChatQuestion, body["question_id"])).state
+        assert state["conditions"] == {"destination_country": "KR"}
+        assert state["clarification_count"] == state["retrieval_count"] == 1
 
 
 async def test_cookie_not_created_and_responses_not_cached(web):
@@ -95,7 +149,7 @@ async def test_cancel_waits_then_allows_same_question_with_edited_conditions(web
     async with web.db.factory() as session:
         state = (await session.get(ChatQuestion, qid)).state
         assert state["retrieval_count"] == 2 and state["clarification_count"] == 1
-        assert state["conditions"] == {"country": "KR"}
+        assert state["conditions"] == {"destination_country": "KR"}
 
 
 async def test_cancelled_original_post_is_control_response_without_c5_status(web):
