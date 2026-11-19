@@ -127,6 +127,35 @@ async def test_agent_success_preserves_evidence_and_never_fallback(execution, se
         assert not (await session.get(ChatSubmission, execution.qid)).fallback_started
 
 
+@pytest.mark.parametrize("failure", [None, "workflow", "shared"])
+async def test_managed_native_agent_preserves_controlled_single_routing(execution, services, monkeypatch, failure):
+    from app.adapters.generation import GenerationError, generate_text
+    requests = []
+    config = {"AGENT_GENERATION_MODEL": "gemma", "AGENT_GENERATION_BASE_URL": "https://gemma.invalid/v1",
+              "AGENT_GENERATION_JSON_SCHEMA_ENABLED": "true"}
+    monkeypatch.setattr("app.adapters.config.settings", lambda: config)
+    def native(messages, **kwargs):
+        requests.append(kwargs)
+        if failure == "shared":
+            raise GenerationError("Synthetic service HTTP 503")
+        return generate_text(messages)
+    monkeypatch.setattr("app.qa.agent.generation.generate_text", native)
+    if failure == "workflow":
+        services.invalid_task = "check_evidence"
+    view = await run(execution)
+    assert requests and all(item["provider_config"]["GENERATION_MODEL"] == "gemma" for item in requests)
+    assert all(item["response_format"]["json_schema"]["strict"] is True for item in requests)
+    if failure == "shared":
+        assert view["execution_status"] == "FAILED"
+        assert "single" not in services.tasks
+    else:
+        assert view["response"]["status"] == "ANSWERED"
+        assert ("single" in services.tasks) is (failure == "workflow")
+    async with execution.factory() as session:
+        submission = await session.get(ChatSubmission, execution.qid)
+        assert submission.fallback_started is (failure == "workflow")
+
+
 @pytest.mark.parametrize("insufficient", [False, True])
 async def test_workflow_error_fallback_shares_budget_conditions_and_sources(execution, services, insufficient):
     services.invalid_task = "check_evidence"
