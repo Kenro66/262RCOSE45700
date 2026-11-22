@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 更新现有 Ubuntu 环境中的部署；不重置数据库，也不迁移数据库结构。
+# 更新现有 Ubuntu 环境中的部署，复用原数据库卷。
 set -euo pipefail
 
 fail() { printf 'Deployment stopped: %s\n' "$*" >&2; exit 1; }
@@ -68,8 +68,14 @@ PY
 # 以上操作均不会修改正在运行的应用。
 git merge --ff-only "$target_sha"
 # 保持当前仓库名称，并将原 Compose 文件列在首位，以复用 postgres_data 数据库卷。
-sudo -n docker compose --env-file backend/.env \
-  -f docker-compose.yml -f deploy/compose.production.yml up -d --wait postgres
+compose=(sudo -n docker compose --env-file backend/.env
+  -f docker-compose.yml -f deploy/compose.production.yml)
+"${compose[@]}" up -d --wait postgres
+# 后端仍在运行。迁移必须与当前应用版本兼容。
+if ! bash deploy/migrate.sh |
+  "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U rag -d p4rag; then
+  fail "database migration failed; backend was not restarted"
+fi
 
 # 部署与后端共用现有虚拟环境：更新依赖前先停止后端。
 # 失败时会明确报错；不保证零停机，也不提供依赖回滚。

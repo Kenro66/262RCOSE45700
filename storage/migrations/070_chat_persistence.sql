@@ -1,5 +1,4 @@
 -- 仅用于未部署版本初始化；旧数据库需单独迁移，重复 CREATE 不会删除旧列或变更主键。
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id VARCHAR(128) PRIMARY KEY,
@@ -36,5 +35,3 @@ CREATE TABLE IF NOT EXISTS chat_submissions (
 CREATE INDEX IF NOT EXISTS ix_chat_submissions_session_id ON chat_submissions(session_id);
 CREATE INDEX IF NOT EXISTS ix_chat_submissions_question_id ON chat_submissions(question_id);
 CREATE INDEX IF NOT EXISTS ix_chat_submissions_status ON chat_submissions(status);
-
-COMMIT;
