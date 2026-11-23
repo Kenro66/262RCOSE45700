@@ -2,6 +2,7 @@
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -256,6 +257,12 @@ class CrosspageIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.question = self.fixture['question']
         self.initial = [SearchHit.model_validate(row) for row in self.fixture['initial_top5']]
         self.chunks = chain_chunks()
+        metadata = [SimpleNamespace(document_id=doc, country='CN', direction='BOTH', status='READY')
+                    for doc in dict.fromkeys(h.document_id for h in self.initial)]
+        metadata += [SimpleNamespace(document_id='DOC003', country='KR', direction='BOTH', status='READY')]
+        listing = patch('app.storage.repo.list_documents', AsyncMock(return_value=metadata))
+        listing.start()
+        self.addCleanup(listing.stop)
 
     async def test_async_read_dependency_scopes_only_relevant_document(self):
         load = AsyncMock(return_value=self.chunks)

@@ -113,7 +113,11 @@ class ExecutionGuard:
 
         async def generate(messages):
             from app.adapters.generation import generate_text
-            return await self.call(generate_text, messages)
+            from app.adapters.config import settings
+            from app.qa.agent.generation import agent_generator
+            # Workflow fallback uses the unchanged Single provider, not the Agent profile.
+            generator = agent_generator(settings(), generate_text) if source == "AGENT" else generate_text
+            return await self.call(generator, messages)
 
         async def complete(hits):
             def capture(items):

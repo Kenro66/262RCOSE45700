@@ -37,7 +37,7 @@ export function answeredFixture(korean: boolean, request: FollowupRequest): Agen
 }
 
 // A deterministic asynchronous fake. No fetch, database, model or production client.
-export function createMockTransport(delay = 650) {
+export function createMockTransport(delay = 650, showPageRange = false) {
   let failNext = false
   let calls = 0
   let lastRequest: FollowupRequest | null = null
@@ -59,7 +59,19 @@ export function createMockTransport(delay = 650) {
         signal.addEventListener('abort', onAbort, { once: true })
       })
       if (shouldFail) throw new Error('MOCK_NETWORK_ERROR')
-      return answeredFixture(korean, request)
+      const response = answeredFixture(korean, request)
+      if (!showPageRange) return response
+      const first = response.citations[0]
+      return {
+        ...response,
+        answer: `${response.answer}[E8]`,
+        citations: [
+          { ...first, page: 12 },
+          { ...first, evidence_id: 'E8', page: 13, quote: korean
+            ? '【예시 원문】13페이지에 이어지는 예시 문구입니다.'
+            : '【模拟原文】这是第 13 页接续的示例条文。' },
+        ],
+      }
     },
   }
 }
