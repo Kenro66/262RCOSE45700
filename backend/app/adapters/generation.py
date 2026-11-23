@@ -1,6 +1,8 @@
 """Synchronous generation using the agreed temporary OpenAI-compatible API."""
 
 from dataclasses import dataclass
+from contextlib import contextmanager
+from contextvars import ContextVar
 from math import isfinite
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,6 +20,25 @@ class GenerationError(RuntimeError):
 class GenerationResult:
     text: str
     tool_calls: list[dict[str, Any]]
+    model_name: str | None = None
+
+
+_model_records: ContextVar[list[str | None] | None] = ContextVar("generation_model_records", default=None)
+
+
+@contextmanager
+def capture_generation_models():
+    """Isolate one execution's successful text calls, including to_thread calls.
+
+    Nested executions (e.g. Single fallback) get a fresh record, never the
+    failed Agent's history. Callers expose the last record only for an accepted answer.
+    """
+    records: list[str | None] = []
+    token = _model_records.set(records)
+    try:
+        yield records
+    finally:
+        _model_records.reset(token)
 
 
 def _generation_parameters(response_format, max_tokens, temperature) -> dict[str, Any]:
@@ -112,7 +133,9 @@ def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] |
                 raise ValueError
         if not text.strip() and not calls:
             raise ValueError
-        return GenerationResult(text=text, tool_calls=calls)
+        returned_model = data.get("model")
+        model_name = returned_model.strip() if isinstance(returned_model, str) and returned_model.strip() else model
+        return GenerationResult(text=text, tool_calls=calls, model_name=model_name)
     except (KeyError, IndexError, TypeError, ValueError, AttributeError):
         raise GenerationError("Generation service returned no valid text or tool calls") from None
 
@@ -129,4 +152,7 @@ def generate_text(messages: str | list[dict[str, Any]], tools: list[dict[str, An
     result = generate(messages, tools, **options)
     if not result.text.strip():
         raise GenerationError("Model returned tool calls only; use generate() to access tool_calls")
+    records = _model_records.get()
+    if records is not None:
+        records.append(result.model_name)
     return result.text

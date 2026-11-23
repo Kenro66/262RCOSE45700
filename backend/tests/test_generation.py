@@ -278,3 +278,12 @@ async def test_single_rag_uses_shared_gemma_with_original_two_field_answer_contr
                           get_documents_fn=AsyncMock(return_value={"doc_1": document()}))
     assert result.status == "ANSWERED" and result.citations[0].evidence_id == "E1"
     assert len(calls) == 1 and "response_format" not in calls[0]  # Existing Single contract retained.
+
+@pytest.mark.parametrize('returned,expected',[('actual-server','actual-server'),(None,'requested'),('','requested')])
+def test_generation_preserves_response_model_or_actual_request(monkeypatch,returned,expected):
+    import httpx
+    from app.adapters import generation
+    client=httpx.Client
+    monkeypatch.setattr(generation,'settings',lambda:{'GENERATION_MODEL':'requested','GENERATION_BASE_URL':'https://synthetic.invalid/v1'})
+    monkeypatch.setattr(generation.httpx,'Client',lambda **kw:client(transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'model':returned,'choices':[{'message':{'content':'text'}}]})),**kw))
+    assert generation.generate('test').model_name==expected

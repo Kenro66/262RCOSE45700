@@ -374,7 +374,8 @@ async def test_compiles_and_answered_early_stop_with_compatible_citations():
     assert result.state.retrieval_count == deps["retrieve_fn"].await_count == 1
     assert result.response.citations[0].model_dump() == dict(
         evidence_id="E1", filename="test_1.pdf", page=1, quote=hit().text)
-    assert set(result.model_dump()) == {"response", "state", "trace"}
+    assert set(result.model_dump()) == {"response", "state", "trace", "model_name"}
+    assert result.model_name is None  # This injected Fake supplies no provider metadata.
     assert "state" not in result.response.model_dump()
 
 
@@ -1658,3 +1659,41 @@ def test_comparison_claim_cannot_use_a_country_outside_approved_scope():
     _, citations = resolve_citations("[E1]", evidence, {"doc_1": document()})
     # A Korean-labelled explanation with a Chinese source cannot supply China’s claim.
     assert missing_comparison_claims("韩国规定需要申报[E1]。", citations, {"CN": {"E1"}}) == ["CN"]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome',['normal','repair','clarify','refuse','failure','cancel'])
+async def test_actual_model_tracks_accepted_answer(monkeypatch,outcome):
+    from app.adapters import generation
+    llm=MockLLM(missing_pre=outcome=='clarify')
+    attempts=0
+    def provider(messages,tools=None,**kwargs):
+        nonlocal attempts
+        data=json.loads(messages[-1]['content']);text=llm(messages);model='decision'
+        if data['task']=='generate_answer':
+            attempts+=1;model=f'answer-{attempts}'
+            if outcome=='failure':raise GenerationError('synthetic failure')
+            if outcome=='cancel':raise asyncio.CancelledError()
+            if outcome=='repair' and attempts==1:text='{"answer":"没有引用","insufficient_evidence":false}'
+            if outcome=='refuse':text='{"answer":"证据不足","insufficient_evidence":true}'
+        return generation.GenerationResult(text,[],model)
+    monkeypatch.setattr(generation,'generate',provider)
+    if outcome in ('failure','cancel'):
+        with pytest.raises(AgentError if outcome=='failure' else asyncio.CancelledError):
+            await run(dependencies(generation.generate_text))
+    else:
+        result=await run(dependencies(generation.generate_text))
+        assert result.model_name==(f'answer-{attempts}' if outcome in ('normal','repair') else None)
+        assert attempts==(2 if outcome=='repair' else 0 if outcome=='clarify' else 1)
+
+@pytest.mark.asyncio
+async def test_model_capture_concurrent_and_fallback_isolation(monkeypatch):
+    from app.adapters import generation
+    monkeypatch.setattr(generation,'generate',lambda messages,*a,**k:generation.GenerationResult('text',[],messages))
+    async def call(name):
+        with generation.capture_generation_models() as records:
+            await asyncio.to_thread(generation.generate_text,name)
+            with generation.capture_generation_models() as fallback:
+                await asyncio.to_thread(generation.generate_text,'single-'+name)
+            assert records==[name] and fallback==['single-'+name]
+        return records
+    assert await asyncio.gather(call('a'),call('b'))==[['a'],['b']]
