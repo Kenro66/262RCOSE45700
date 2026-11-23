@@ -170,6 +170,26 @@ test('HTTP session lifecycle consumes the persistent backend response format', a
   ])
 })
 
+test('page-range preview answers after clarification with consecutive citations in both languages', async () => {
+  for (const korean of [false, true]) {
+    const send = createChatMock('page-range')
+    const signal = new AbortController().signal
+    const original = { session_id: 'preview', message: '入境规定' }
+    const clarification = await send(original, signal, korean)
+    assert.equal(clarification.status, 'NEEDS_CLARIFICATION')
+    const response = await send({
+      ...original,
+      question_id: clarification.question_id,
+      conditions: { destination_country: 'CN' },
+    }, signal, korean)
+    assert.equal(response.status, 'ANSWERED')
+    assert.deepEqual(response.citations.map(citation => citation.page), [12, 13])
+    assert.equal(response.citations[0].filename, response.citations[1].filename)
+    assert.match(response.answer, /\[E7\]\[E8\]/)
+    assert.match(response.citations[1].quote, korean ? /13페이지/ : /第 13 页/)
+  }
+})
+
 test('mock preview handles malformed evidence, a one-time failure and pre-aborted requests', async () => {
   const signal = new AbortController()
   const original = { session_id: 'preview', message: '原问题' }
