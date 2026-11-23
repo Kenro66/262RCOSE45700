@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .config import required, settings
+from .config import generation_settings, required, settings
 
 
 class GenerationError(RuntimeError):
@@ -20,7 +20,37 @@ class GenerationResult:
     tool_calls: list[dict[str, Any]]
 
 
-def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> GenerationResult:
+def _generation_parameters(response_format, max_tokens, temperature) -> dict[str, Any]:
+    if response_format is not None and not isinstance(response_format, dict):
+        raise ValueError("response_format must be an object")
+    if max_tokens is not None and (type(max_tokens) is not int or max_tokens <= 0):
+        raise ValueError("max_tokens must be a positive integer")
+    if temperature is not None and (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+                                    or not isfinite(temperature) or not 0 <= temperature <= 2):
+        raise ValueError("temperature must be finite and between 0 and 2")
+    payload: dict[str, Any] = {}
+    if response_format is not None:
+        payload["response_format"] = response_format
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if temperature is not None:
+        payload["temperature"] = temperature
+    return payload
+
+
+def _configured_parameters(config, response_format, max_tokens, temperature) -> dict[str, Any]:
+    maximum = config.get("GENERATION_MAX_TOKENS", "").strip()
+    temp = config.get("GENERATION_TEMPERATURE", "").strip()
+    if max_tokens is None and maximum:
+        max_tokens = int(maximum)
+    if temperature is None and temp:
+        temperature = float(temp)
+    return _generation_parameters(response_format, max_tokens, temperature)
+
+
+def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] | None = None, *,
+             response_format: dict[str, Any] | None = None, max_tokens: int | None = None,
+             temperature: float | None = None, provider_config: dict[str, str] | None = None) -> GenerationResult:
     """Return text and/or tool calls; executing tools is the caller's responsibility."""
     if isinstance(messages, str):
         if not messages.strip():
@@ -30,8 +60,10 @@ def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] |
         raise ValueError("messages must be a non-empty list of chat messages")
     if tools is not None and (not isinstance(tools, list) or any(not isinstance(tool, dict) for tool in tools)):
         raise ValueError("tools must be a list of tool definitions")
-    config = settings()
+    _generation_parameters(response_format, max_tokens, temperature)
     try:
+        config = generation_settings(settings() if provider_config is None else provider_config)
+        parameters = _configured_parameters(config, response_format, max_tokens, temperature)
         model = required(config, "GENERATION_MODEL")
         base = required(config, "GENERATION_BASE_URL").rstrip("/")
         parsed = urlsplit(base)
@@ -43,9 +75,10 @@ def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] |
             raise ValueError("GENERATION_TIMEOUT_SECONDS must be positive and finite")
     except ValueError as exc:
         raise GenerationError(str(exc)) from None
-    payload = {"model": model, "messages": messages}
+    payload: dict[str, Any] = {"model": model, "messages": messages}
     if tools is not None:
         payload["tools"] = tools
+    payload.update(parameters)
     headers = {}
     key = config.get("GENERATION_API_KEY", "").strip()
     if key:
@@ -84,9 +117,16 @@ def generate(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] |
         raise GenerationError("Generation service returned no valid text or tool calls") from None
 
 
-def generate_text(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> str:
+def generate_text(messages: str | list[dict[str, Any]], tools: list[dict[str, Any]] | None = None, *,
+                  response_format: dict[str, Any] | None = None, max_tokens: int | None = None,
+                  temperature: float | None = None, provider_config: dict[str, str] | None = None) -> str:
     """Return non-empty text; use generate() when tool-only output is possible."""
-    result = generate(messages, tools)
+    options: dict[str, Any] = {}
+    for key, value in (("response_format", response_format), ("max_tokens", max_tokens),
+                       ("temperature", temperature), ("provider_config", provider_config)):
+        if value is not None:
+            options[key] = value
+    result = generate(messages, tools, **options)
     if not result.text.strip():
         raise GenerationError("Model returned tool calls only; use generate() to access tool_calls")
     return result.text
