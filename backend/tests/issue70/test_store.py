@@ -187,7 +187,7 @@ async def test_saved_waiting_state_restores_after_store_recreation_without_expir
     assert (await restored.execution_input(waiting.qid, "new-worker"))["state"]["retrieval_count"] == 1
 
 
-@pytest.mark.parametrize("corruption", ["missing_field", "wrong_binding", "missing_submission", "null_state"])
+@pytest.mark.parametrize("corruption", ["missing_field", "wrong_binding", "missing_submission", "null_state", "invalid_budget"])
 async def test_corrupt_database_state_never_restarts_from_zero(db, waiting, corruption):
     async with db.factory() as session, session.begin():
         question = await session.get(ChatQuestion, waiting.qid)
@@ -199,6 +199,8 @@ async def test_corrupt_database_state_never_restarts_from_zero(db, waiting, corr
             state = dict(question.state)
             if corruption == "missing_field":
                 state.pop("retrieval_count")
+            elif corruption == "invalid_budget":
+                state["retrieval_count"] = 4
             else:
                 state["question_id"] = "wrong"
             question.state = state
@@ -307,3 +309,31 @@ async def test_legacy_evidence_is_discarded_on_followup_after_restart(db, waitin
     assert data["state"]["conditions"] == {"country": "KR"}
     assert data["state"]["retrieval_count"] == 1
     assert data["state"]["evidence"] == data["state"]["retrieval_queries"] == []
+
+
+async def test_transient_response_expires_at_deadline(db, reserved, monkeypatch):
+    clock = 100.0
+    monkeypatch.setattr("app.chat.persistent.store.monotonic", lambda: clock)
+    await db.store.finish(reserved.qid, reserved.worker, "SUCCEEDED", response(reserved.qid))
+
+    clock = 399.0
+    assert (await db.store.get_execution(reserved.qid))["response"] is not None
+    clock = 400.0
+    expired = await db.store.get_execution(reserved.qid)
+    assert expired["execution_status"] == "SUCCEEDED"
+    assert expired["response"] is None
+    assert reserved.qid not in db.store.responses
+
+
+async def test_transient_response_capacity_evicts_oldest(db, reserved, monkeypatch):
+    monkeypatch.setattr("app.chat.persistent.store.MAX_TRANSIENT_RESPONSES", 1)
+    await db.store.finish(reserved.qid, reserved.worker, "SUCCEEDED", response(reserved.qid))
+    row, started = await db.store.reserve(
+        PersistentChatRequest(message="第二个问题", session_id=reserved.sid), reserved.worker,
+    )
+    assert started
+    newer = row["question_id"]
+    await db.store.finish(newer, reserved.worker, "SUCCEEDED", response(newer))
+
+    assert (await db.store.get_execution(reserved.qid))["response"] is None
+    assert (await db.store.get_execution(newer))["response"]["question_id"] == newer
