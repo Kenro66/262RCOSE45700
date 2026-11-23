@@ -2,7 +2,7 @@ import { ClarificationForm, ConflictEvidence } from './chat/AgentMessages'
 import { convertC5ChatResponse, type ResponseStatus } from './chat/response'
 import { mockChatEnabled } from './chat/mock-mode'
 import { previewMessages } from './chat/messages'
-import type { AgentResponse, FollowupRequest } from './chat/contracts'
+import { citationPageLabels, type AgentResponse, type FollowupRequest } from './chat/contracts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from './i18n/I18nContext'
 import type { TranslationKey } from './i18n/zh-CN'
@@ -27,6 +27,23 @@ type DocumentItem = Omit<C1Document, 'status'> & {
 type Citation = Pick<C5Citation, 'filename' | 'quote'> & {
   id: number
   reference: string
+  quotePage?: string
+}
+
+function citationPanelItems(message?: Message): Citation[] {
+  const citations = message?.citationDetails ?? []
+  const pageLabels = message?.responseStatus === 'ANSWER' ? citationPageLabels(citations) : undefined
+  return citations.map((item, index) => {
+    const page = `p.${item.page}`
+    const label = pageLabels?.get(item.filename)?.get(item.page) ?? page
+    return {
+      id: item.display_id ?? (Number(item.evidence_id.replace(/^E/i, '')) || index + 1),
+      filename: item.filename,
+      reference: `PDF ${label}`,
+      quotePage: label === page ? undefined : page,
+      quote: item.quote,
+    }
+  })
 }
 
 type Message = {
@@ -640,7 +657,7 @@ function CitationPanel({
 
           <div className="evidence-label">
             <span>{t('citations.original')}</span>
-            <span>{t('citations.verbatim')}</span>
+            <span>{t('citations.verbatim')}{citation.quotePage && ` · ${citation.quotePage}`}</span>
           </div>
 
           <blockquote>{citation.quote}</blockquote>
@@ -735,6 +752,7 @@ function ChatMockBanner() {
   if (!mockChatEnabled) return null
   return <div className="chat-mock-banner">{previewMessages[locale].preview}<div className="chat-mock-links">
           <a href="?mock=1&scenario=clarify">{previewMessages[locale].clarify}</a>
+          <a href="?mock=1&scenario=page-range">{previewMessages[locale].pageRange}</a>
           <a href="?mock=1&scenario=multi">{previewMessages[locale].multi}</a>
           <a href="?mock=1&scenario=conflict">{previewMessages[locale].conflict}</a>
           <a href="?mock=1&scenario=clarify&fail-once=1">{previewMessages[locale].failOnce}</a>
@@ -774,13 +792,7 @@ function ChatPage({
   const citationMessage = messages.find((message) => message.id === citationMessageId && message.role === 'assistant') ?? latestAssistantMessage
   const citationPanelStatus = citationMessage?.responseStatus
     ?? (citationMessage?.citations?.length ? 'ANSWER' : undefined)
-    const currentCitations: Citation[] =
-  citationMessage?.citationDetails?.map((item, index) => ({
-    id: item.display_id ?? (Number(item.evidence_id.replace(/^E/i, '')) || index + 1),
-    filename: item.filename,
-    reference: `PDF p.${item.page}`,
-    quote: item.quote,
-  })) ?? []
+  const currentCitations = citationPanelItems(citationMessage)
 
   const automaticResponseContent: Record<'INSUFFICIENT_EVIDENCE' | 'NO_READY_DOCUMENTS' | 'SYSTEM_ERROR', { title: string; body: string; action: string }> = {
     INSUFFICIENT_EVIDENCE: {

@@ -251,6 +251,33 @@ describe('问答页面需求', () => {
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/chat')).toHaveLength(1)
   })
 
+  it('同一回答按文件合并连续页码，并保留每条引用原文', async () => {
+    const fetcher = mockApi()
+    fetcher.mockImplementation(async (url) => url === '/api/chat' ? Response.json({
+      ...answered,
+      citations: [
+        { evidence_id: 'E1', filename: '中国政策.pdf', page: 13, quote: '第十三页原文。' },
+        { evidence_id: 'E2', filename: '中国政策.pdf', page: 12, quote: '第十二页原文。' },
+        { evidence_id: 'E3', filename: '中国政策.pdf', page: 15, quote: '第十五页原文。' },
+        { evidence_id: 'E4', filename: '另一份政策.pdf', page: 14, quote: '另一份文件的原文。' },
+      ],
+    }) : Response.json([readyDocument]))
+    const user = await openChat()
+    await ask(user)
+    expect(await screen.findByText('PDF p.12–13')).toBeVisible()
+    const selectCitation = async (id: number) => {
+      const tabs = screen.getByText('PDF p.', { exact: false }).closest('.citation-panel')!
+      await user.click(within(tabs as HTMLElement).getByRole('button', { name: `[${id}]` }))
+    }
+    await selectCitation(2)
+    expect(screen.getByText('PDF p.12–13')).toBeVisible()
+    expect(screen.getByText('第十二页原文。')).toBeVisible()
+    await selectCitation(3)
+    expect(screen.getByText('PDF p.15')).toBeVisible()
+    await selectCitation(4)
+    expect(screen.getByText('PDF p.14')).toBeVisible()
+  })
+
   it('CHAT-06：连续回答后点击旧回答引用，展示旧回答自己的来源', async () => {
     const fetcher = mockApi()
     let calls = 0
