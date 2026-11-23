@@ -103,6 +103,7 @@ export const zhCN = {
   'chat.goDocuments': '前往 Documents',
   'chat.consultant': '咨询人员',
   'chat.userAvatar': '咨',
+  'chat.answerUnavailable': '此回答已过期。请重新提问以获取最新回答。',
   'chat.basedOnDocuments': '基于上传文档',
   'chat.retry': '重试',
   'chat.searching': '正在检索',

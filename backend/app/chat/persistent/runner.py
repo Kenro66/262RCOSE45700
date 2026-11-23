@@ -104,8 +104,9 @@ class ChatRunner:
 
     async def _watch_cancel(self, question_id, *, execution_key=None):
         while True:
-            record = (await self.store.get_execution(question_id) if execution_key is None
-                      else await self.store.get_execution(question_id, execution_key=execution_key))
+            async with self.claim_lock:
+                record = (await self.store.get_execution(question_id) if execution_key is None
+                          else await self.store.get_execution(question_id, execution_key=execution_key))
             if record["cancel_requested"]:
                 return
             await asyncio.sleep(POLL_SECONDS)

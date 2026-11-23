@@ -71,12 +71,6 @@ git merge --ff-only "$target_sha"
 compose=(sudo -n docker compose --env-file backend/.env
   -f docker-compose.yml -f deploy/compose.production.yml)
 "${compose[@]}" up -d --wait postgres
-# 后端仍在运行。迁移必须与当前应用版本兼容。
-if ! bash deploy/migrate.sh |
-  "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U rag -d p4rag; then
-  fail "database migration failed; backend was not restarted"
-fi
-
 # 部署与后端共用现有虚拟环境：更新依赖前先停止后端。
 # 失败时会明确报错；不保证零停机，也不提供依赖回滚。
 sudo -n systemctl stop rag-backend.service
@@ -94,6 +88,11 @@ trap recover_service EXIT
 .venv/bin/python -m pip install -r backend/requirements-cpu.txt
 .venv/bin/python -m pip install -r backend/requirements.txt
 .venv/bin/python -m pip check
+# 停止旧后端后再清理旧的聊天快照，避免旧进程在迁移后写回证据和答案。
+if ! bash deploy/migrate.sh |
+  "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U rag -d p4rag; then
+  fail "database migration failed"
+fi
 sudo -n systemctl start rag-backend.service
 
 ready=false

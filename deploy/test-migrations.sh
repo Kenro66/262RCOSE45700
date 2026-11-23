@@ -24,7 +24,7 @@ scalar() { "${db[@]}" -Atc "$1"; }
 
 migrate
 migrate
-[[ $(scalar 'SELECT count(*) FROM public.schema_migrations') == 4 ]]
+[[ $(scalar 'SELECT count(*) FROM public.schema_migrations') == 5 ]]
 [[ $(scalar "SELECT to_regclass('chat_retrieval_attempts') IS NOT NULL") == t ]]
 
 printf '%s\n' 'CREATE TABLE ci_migration_rollback (value integer);' > "$rollback"
@@ -34,4 +34,4 @@ if migrate; then
   exit 1
 fi
 [[ $(scalar "SELECT to_regclass('ci_migration_rollback') IS NULL") == t ]]
-[[ $(scalar 'SELECT count(*) FROM public.schema_migrations') == 4 ]]
+[[ $(scalar 'SELECT count(*) FROM public.schema_migrations') == 5 ]]

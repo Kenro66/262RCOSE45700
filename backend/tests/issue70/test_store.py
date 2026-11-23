@@ -76,13 +76,17 @@ async def test_followup_keeps_counts_and_binds_original_question(db, waiting):
     assert data["state"]["conditions"] == {"country": "CN"}
 
 
-async def test_evidence_sources_survive_database_round_trip(db, reserved):
+async def test_checkpoint_discards_retrieval_data(db, reserved):
     hit = SearchHit(chunk_id="chunk1", document_id="doc1", page_number=2, text="原始政策证据", score=.9)
     state = reserved.state.model_copy(update={"retrieval_count": 1, "evidence_ids": ["E1"], "evidence": [CachedEvidence(evidence_id="E1", hit=hit)], "retrieval_queries": [QUESTION]})
     await db.store.checkpoint(reserved.qid, reserved.worker, state)
     data = await db.store.execution_input(reserved.qid, reserved.worker)
-    assert data["state"]["evidence"][0]["hit"] == hit.model_dump(mode="json")
-    assert data["state"]["evidence_ids"] == ["E1"]
+    assert data["state"]["retrieval_count"] == 1
+    assert data["state"]["evidence"] == data["state"]["evidence_ids"] == []
+    assert data["state"]["retrieval_queries"] == []
+    async with db.factory() as session:
+        question = await session.get(ChatQuestion, reserved.qid)
+        assert set(question.state) == {"conditions", "retrieval_count", "clarification_count"}
 
 
 @pytest.mark.parametrize("field", ["retrieval_count", "clarification_count"])
@@ -264,3 +268,42 @@ async def test_failed_original_question_can_retry_without_unasked_conditions(db,
     row, started = await db.store.reserve(PersistentChatRequest(message=QUESTION, session_id=reserved.sid, question_id=reserved.qid), reserved.worker)
     assert started and row["execution_status"] == "RUNNING"
     assert (await db.store.execution_input(reserved.qid, reserved.worker))["state"]["retrieval_count"] == 2
+
+
+async def test_answer_visible_to_polling_without_database_persistence(db, reserved):
+    answer = response(
+        reserved.qid, "ANSWERED", answer="结论 [E1]",
+        citations=[{"evidence_id": "E1", "filename": "a.pdf", "page": 1, "quote": "政策 A"}],
+    )
+    await db.store.finish(reserved.qid, reserved.worker, "SUCCEEDED", answer)
+    assert (await db.store.get_execution(reserved.qid))["response"]["answer"] == answer["answer"]
+    async with db.factory() as session:
+        submission_row = await session.get(ChatSubmission, reserved.qid)
+        assert submission_row.response is None
+    restored = ChatStore(db.factory)
+    record = await restored.get_execution(reserved.qid)
+    assert record["execution_status"] == "SUCCEEDED"
+    assert record["response"] is None
+
+
+async def test_legacy_evidence_is_discarded_on_followup_after_restart(db, waiting):
+    hit = SearchHit(chunk_id="old", document_id="doc1", page_number=1, text="旧条件证据", score=.9)
+    legacy = waiting.state.model_copy(update={
+        "conditions": {"country": "CN"},
+        "evidence_ids": ["E1"],
+        "evidence": [CachedEvidence(evidence_id="E1", hit=hit)],
+        "retrieval_queries": [QUESTION],
+    })
+    async with db.factory() as session, session.begin():
+        question = await session.get(ChatQuestion, waiting.qid)
+        question.state = legacy.model_dump(mode="json")
+    restored = ChatStore(db.factory)
+    pending = await restored.get_execution(waiting.qid)
+    assert pending["response"]["clarification"] == prompt().model_dump(mode="json")
+    request = PersistentChatRequest.model_validate(submission(waiting.qid, country="KR"))
+    _, started = await restored.reserve(request, waiting.worker)
+    assert started
+    data = await restored.execution_input(waiting.qid, waiting.worker)
+    assert data["state"]["conditions"] == {"country": "KR"}
+    assert data["state"]["retrieval_count"] == 1
+    assert data["state"]["evidence"] == data["state"]["retrieval_queries"] == []

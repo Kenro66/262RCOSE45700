@@ -45,6 +45,14 @@ type Message = {
   followupValues?: Record<string, string>
 }
 
+function restoredAnswerPlaceholder(
+  status: string,
+  hasResponse: boolean,
+  t: (key: TranslationKey) => string,
+) {
+  return status === 'SUCCEEDED' && !hasResponse ? t('chat.answerUnavailable') : ''
+}
+
 type Conversation = {
   session_id: string
   id: number
@@ -828,7 +836,7 @@ function ChatPage({
           return [
             { id: -(index * 2 + 1), role: 'user', body: question.message },
             { id: -(index * 2 + 2), role: 'assistant', request: question.message,
-              body: response?.answer ?? response?.message ?? '',
+              body: response?.answer ?? response?.message ?? restoredAnswerPlaceholder(execution.execution_status, Boolean(result), t),
               apiResponse: result ?? undefined, question_id: question.question_id,
               citations: response?.citations, citationDetails: response?.citationDetails,
               clarification: response?.clarification ?? question.clarification,
@@ -857,7 +865,7 @@ function ChatPage({
     }
     void restore(true)
     return () => { stopped = true; window.clearTimeout(timer); setRestoring(false) }
-  }, [visible, persisted, sessionId, conversationId])
+  }, [visible, persisted, sessionId, conversationId, t])
 
   function cancelFollowup(sessionId: string, questionId: string) {
     const controller = activeChatRequest.current

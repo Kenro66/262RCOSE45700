@@ -21,6 +21,7 @@ from app.chat.persistent.runner import ChatRunner
 from app.chat.persistent.schemas import PersistentChatRequest, PersistentChatResponse
 from app.contracts import ChatResponse, ChatStatus
 from app.qa.agent.nodes import AgentError, AgentErrorType
+from app.qa.agent.state import Clarification
 from app.storage.models import Document
 from .conftest import hit
 
@@ -143,7 +144,8 @@ async def test_workflow_error_fallback_shares_budget_conditions_and_sources(exec
     assert '"country": "KR"' in services.fallback_messages[0][-1]["content"]
     async with execution.factory() as session:
         question = await session.get(ChatQuestion, execution.qid)
-        assert question.retrieval_used == 2 and question.state["evidence_ids"] == ["E1"]
+        assert question.retrieval_used == 2
+        assert question.state == {"conditions": {"country": "KR"}, "retrieval_count": 2, "clarification_count": 0}
         attempts = list((await session.scalars(select(ChatRetrievalAttempt).order_by(ChatRetrievalAttempt.ordinal))).all())
         assert [a.source for a in attempts] == ["AGENT", "FALLBACK"]
         assert (await session.get(ChatSubmission, execution.qid)).fallback_started
@@ -173,13 +175,45 @@ async def test_no_documents_returns_existing_business_response(execution, servic
     assert view["response"]["status"] == "NO_READY_DOCUMENTS" and not services.queries
 
 
-async def test_cancel_after_retrieval_keeps_source_without_fallback(execution, services):
+async def test_cancel_after_retrieval_keeps_count_without_persisting_source(execution, services):
     services.stop = execution.stop
     view = await run(execution)
     assert view["execution_status"] == "CANCELLED" and "single" not in services.tasks
     async with execution.factory() as session:
         state = (await session.get(ChatQuestion, execution.qid)).state
-        assert state["retrieval_count"] == 1 and state["evidence"][0]["hit"]["text"] == "测试规则原文。"
+        assert state == {"conditions": {}, "retrieval_count": 1, "clarification_count": 0}
+
+
+async def test_changed_country_retrieves_again_with_managed_budget(execution, services):
+    clarification = Clarification.model_validate({"questions": [
+        {"field": "country", "question": "目的地？", "type": "select", "options": ["CN", "KR"]},
+    ]})
+    async with execution.factory() as session, session.begin():
+        question = await session.get(ChatQuestion, execution.qid)
+        question.state = {**question.state, "conditions": {"country": "CN"}, "clarification_count": 1}
+        question.clarification = clarification.model_dump(mode="json")
+    execution.data = await execution.store.execution_input(execution.qid, "worker")
+    services.stop = execution.stop
+    assert (await run(execution))["execution_status"] == "CANCELLED"
+
+    request = PersistentChatRequest(
+        message=execution.data["question"], session_id=execution.data["session_id"],
+        question_id=execution.qid, conditions={"country": "KR"},
+    )
+    _, started = await execution.store.reserve(request, "worker")
+    assert started
+    execution.stop = asyncio.Event()
+    services.stop = None
+    execution.data = await execution.store.execution_input(execution.qid, "worker")
+    assert (await run(execution))["response"]["status"] == "ANSWERED"
+    assert len(services.queries) == 2
+    assert '"country": "CN"' in services.queries[0]
+    assert '"country": "KR"' in services.queries[1]
+    async with execution.factory() as session:
+        question = await session.get(ChatQuestion, execution.qid)
+        assert question.state == {"conditions": {"country": "KR"}, "retrieval_count": 2, "clarification_count": 1}
+        attempts = list((await session.scalars(select(ChatRetrievalAttempt).order_by(ChatRetrievalAttempt.ordinal))).all())
+        assert [(item.ordinal, item.query) for item in attempts] == [(1, ""), (2, "")]
 
 
 async def test_expired_execution_never_calls_service(execution, services):

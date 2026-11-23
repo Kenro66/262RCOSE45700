@@ -92,6 +92,9 @@ async def test_cancel_waits_then_allows_same_question_with_edited_conditions(web
     assert stopped["execution_status"] == "CANCELLED" and stopped["retryable"]
     again = await web.client.post("/api/chat", json=submission(qid, country="KR"))
     assert again.status_code == 200 and again.json()["question_id"] == qid
+    assert len(web.control.retrievals) == 2
+    assert '"country": "CN"' in web.control.retrievals[0]
+    assert '"country": "KR"' in web.control.retrievals[1]
     async with web.db.factory() as session:
         state = (await session.get(ChatQuestion, qid)).state
         assert state["retrieval_count"] == 2 and state["clarification_count"] == 1
@@ -173,7 +176,7 @@ async def test_technical_failure_saves_agent_budget_and_returns_http_500(web):
     assert status.status_code == 200 and status.json()["execution_status"] == "FAILED"
 
 
-async def test_same_query_after_failure_uses_original_agent_deduplication(web):
+async def test_same_query_after_failure_retrieves_again(web):
     first = await ask(web)
     qid = first["question_id"]
     web.control.retrieve_error = RuntimeError("temporary")
@@ -181,7 +184,8 @@ async def test_same_query_after_failure_uses_original_agent_deduplication(web):
     web.control.retrieve_error = None
     result = await web.client.post("/api/chat", json=submission(qid))
     assert result.status_code == 200 and result.json()["status"] == "INSUFFICIENT_EVIDENCE"
-    assert len(web.control.retrievals) == 1
+    assert len(web.control.retrievals) == 2
+    assert web.control.retrievals[0] == web.control.retrievals[1]
 
 
 async def test_delete_running_question_never_revives_data(web):
