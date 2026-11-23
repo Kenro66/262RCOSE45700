@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -36,7 +37,6 @@ async def test_first_question_and_followup_use_real_agent(web):
 async def test_http_p001_explicit_preface_message_only_reaches_retrieval_without_reasking(web):
     """Mock regression for the actual failed input boundary, not policy accuracy."""
     from pathlib import Path
-    import json
     pilot = json.loads((Path(__file__).resolve().parents[3] / "eval/pilot43_questions_v1_40.jsonl").read_text(encoding="utf-8").splitlines()[0])
     message = "적용 조건: 한국 입국; 일반 여행자; 별도면세 대상 제외.\n" + pilot["question"]
     web.control.extra_questions = [
@@ -146,6 +146,10 @@ async def test_cancel_waits_then_allows_same_question_with_edited_conditions(web
     assert stopped["execution_status"] == "CANCELLED" and stopped["retryable"]
     again = await web.client.post("/api/chat", json=submission(qid, country="KR"))
     assert again.status_code == 200 and again.json()["question_id"] == qid
+    assert len(web.control.retrievals) == 2
+    submitted_conditions = [submission(qid, country=value)["conditions"] for value in ("CN", "KR")]
+    for query, conditions in zip(web.control.retrievals, submitted_conditions, strict=True):
+        assert json.loads(query.split("\nConditions: ", 1)[1]) == conditions
     async with web.db.factory() as session:
         state = (await session.get(ChatQuestion, qid)).state
         assert state["retrieval_count"] == 2 and state["clarification_count"] == 1
@@ -227,7 +231,7 @@ async def test_technical_failure_saves_agent_budget_and_returns_http_500(web):
     assert status.status_code == 200 and status.json()["execution_status"] == "FAILED"
 
 
-async def test_same_query_after_failure_uses_original_agent_deduplication(web):
+async def test_same_query_after_failure_retrieves_again(web):
     first = await ask(web)
     qid = first["question_id"]
     web.control.retrieve_error = RuntimeError("temporary")
@@ -235,7 +239,8 @@ async def test_same_query_after_failure_uses_original_agent_deduplication(web):
     web.control.retrieve_error = None
     result = await web.client.post("/api/chat", json=submission(qid))
     assert result.status_code == 200 and result.json()["status"] == "INSUFFICIENT_EVIDENCE"
-    assert len(web.control.retrievals) == 1
+    assert len(web.control.retrievals) == 2
+    assert web.control.retrievals[0] == web.control.retrievals[1]
 
 
 async def test_delete_running_question_never_revives_data(web):

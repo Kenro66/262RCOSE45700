@@ -152,3 +152,27 @@ async def test_explicit_stop_survives_agent_dependency_error_wrapping(db, error_
     assert saved["execution_status"] == "CANCELLED"
     assert saved["error_code"] == "CANCELLED" and saved["retryable"]
     assert saved["response"] is None and progress["reliable"]
+
+
+async def test_supervisor_does_not_interrupt_inflight_cancel_read(db, monkeypatch):
+    runner = ChatRunner(db.store)
+    reading = asyncio.Event()
+    allow_read_to_finish = asyncio.Event()
+
+    async def read_execution(_question_id):
+        reading.set()
+        await allow_read_to_finish.wait()
+        return {"cancel_requested": False}
+
+    async def complete_execution(*_args):
+        await reading.wait()
+
+    monkeypatch.setattr(db.store, "get_execution", read_execution)
+    monkeypatch.setattr(runner, "_execute", complete_execution)
+    task = asyncio.create_task(runner._supervise("question"))
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(task), 0.05)
+    finally:
+        allow_read_to_finish.set()
+        await asyncio.wait_for(task, 1)

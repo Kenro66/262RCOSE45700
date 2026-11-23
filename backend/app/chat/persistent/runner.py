@@ -104,8 +104,9 @@ class ChatRunner:
 
     async def _watch_cancel(self, question_id, *, execution_key=None):
         while True:
-            record = (await self.store.get_execution(question_id) if execution_key is None
-                      else await self.store.get_execution(question_id, execution_key=execution_key))
+            async with self.claim_lock:
+                record = (await self.store.get_execution(question_id) if execution_key is None
+                          else await self.store.get_execution(question_id, execution_key=execution_key))
             if record["cancel_requested"]:
                 return
             await asyncio.sleep(POLL_SECONDS)
@@ -142,7 +143,9 @@ class ChatRunner:
             response = AgentChatResponse(status=ChatStatus.SYSTEM_ERROR, question_id=question_id, message="系统暂时无法处理请求，请稍后重试。" if progress["reliable"] else "本题执行状态无法安全恢复，请重新提问。")
             await self.store.finish(question_id, self.worker_id, "FAILED", response.model_dump(mode="json"), "SYSTEM_ERROR", state_reliable=progress["reliable"], execution_key=progress.get("execution_key"))  # 状态不可信时禁止清零重跑。
         finally:
-            cancellation.cancel()
+            # Let an in-flight poll close its database session before cancelling the monitor.
+            async with self.claim_lock:
+                cancellation.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await cancellation
 

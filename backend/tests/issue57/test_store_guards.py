@@ -9,7 +9,7 @@ from app.chat.config import RagSettings
 from app.chat.persistent.errors import ChatProblem
 from app.chat.persistent.models import ChatQuestion, ChatRetrievalAttempt, ChatSubmission
 from app.chat.persistent.schemas import PersistentChatRequest
-from app.qa.agent.state import CachedEvidence
+from app.qa.agent.state import AgentState, CachedEvidence
 from .conftest import checkpoint, hit
 
 pytestmark = pytest.mark.asyncio
@@ -174,3 +174,23 @@ async def test_single_failure_can_use_existing_resubmit_without_agent_state(data
     assert started and replay.run_id != record.run_id
     data = await database.store.execution_input(record["question_id"], "worker")
     assert data["state"] == {"conditions": {}} and data["deadline_at"] is None
+
+
+async def test_delete_session_discards_only_its_inflight_queries(execution):
+    store = execution.store
+    other, started = await store.reserve(
+        PersistentChatRequest(message="另一个会话的问题", session_id="s2"), execution.worker,
+    )
+    assert started
+    await store.reserve_retrieval(execution.qid, execution.key, "deleted query", "AGENT")
+    await store.reserve_retrieval(other["question_id"], other.run_id, "other query", "AGENT")
+
+    await store.delete_session(execution.data["session_id"])
+
+    assert (execution.qid, execution.key) not in store.retrieval_queries
+    await store.finish_retrieval(other["question_id"], other.run_id, 1, "SUCCEEDED")
+    data = await store.execution_input(other["question_id"], execution.worker)
+    state = AgentState.model_validate({
+        **data["state"], "retrieval_count": 1, "retrieval_queries": ["other query"],
+    })
+    await store.checkpoint(other["question_id"], execution.worker, state, execution_key=other.run_id)
