@@ -486,7 +486,7 @@ async def test_post_retrieval_clarification_json_roundtrip_reuses_evidence():
     assert second.state.clarification_count == 1
     assert second.response.question_id == first.response.question_id
     assert second.state.conditions == {"destination_country": "CN"}
-    assert deps["get_documents_fn"].await_count == 2
+    assert deps["get_documents_fn"].await_count == 3
     assert AgentResult.model_validate_json(second.model_dump_json()).state == second.state
 
 
@@ -1457,6 +1457,75 @@ COMPARISON_QUESTION = "中国和韩国的普通旅客免税政策有什么区别
 COMPARISON_GOOD = "中国合成规则的额度为5000元[E1]。韩国合成规则的额度为800美元[E2]。"
 
 
+@pytest.mark.parametrize("question,expected", [
+    ("对比中国的政策和韩国的政策：普通旅客入境时一般免税额度有何不同？", {"direction":"INBOUND"}),
+    ("比较中韩政策，出境时通关规定有什么区别？", {"direction":"OUTBOUND"}),
+    ("중국과 한국 정책 비교: 입국 시 면세 한도는?", {"direction":"INBOUND"}),
+    ("比较中国和韩国政策，入境或出境时免税额度？", {}),
+    ("比较中国和韩国政策，不是入境时免税规定。", {}),
+    ("比较中国和韩国政策，出境后再入境时免税额度？", {}),
+])
+def test_comparison_shared_direction_is_independent_and_restore_safe(question, expected):
+    from app.qa.agent.conditions import explicit_question_scope, confirmed_conditions, ConditionConflict
+    assert explicit_question_scope(question) == expected
+    raw = {"destination_country":"CN"}
+    assert confirmed_conditions(question, raw) == {**raw, **expected}
+    assert raw == {"destination_country":"CN"}
+    if expected:
+        opposite = "OUTBOUND" if expected["direction"] == "INBOUND" else "INBOUND"
+        with pytest.raises(ConditionConflict):
+            confirmed_conditions(question, {"direction":opposite})
+
+
+@pytest.mark.parametrize("preserve", [False, True])
+@pytest.mark.asyncio
+async def test_restored_scope_excludes_foreign_and_wrong_direction_but_preserves_ids(preserve):
+    question = "携带物品通关有什么规定？"
+    sources = [hit(1), hit(2), hit(3)]
+    saved = AgentState(question=question, session_id="scope", question_id="scope-q", retrieval_count=1,
+                       clarification_count=1, evidence_ids=["E1", "E2", "E3"],
+                       evidence=[CachedEvidence(evidence_id=f"E{i}", hit=h) for i, h in enumerate(sources, 1)])
+    llm = MockLLM(answer="测试资料规定物品需要申报。[E2]")
+    deps = dependencies(llm, batches=[], docs={"doc_1": document(1, country="KR"),
+        "doc_2": document(2), "doc_3": document(3, direction="OUTBOUND")})
+    result = await agent_answer(question, "scope", question_id="scope-q", agent_state=saved,
+        conditions={"destination_country": "CN", "direction": "INBOUND"}, preserve_evidence_ids=preserve, **deps)
+    audit = next(c for c in llm.calls if c["task"] == "check_evidence")
+    assert [(e["evidence_id"], e["source"]["chunk_id"]) for e in audit["evidence"]] == [("E2", "chunk_2")]
+    assert result.response.status == ChatStatus.ANSWERED
+    assert [c.evidence_id for c in result.response.citations] == ["E2"]
+    assert result.state.retrieval_count == 1 and result.state.clarification_count == 1
+    deps["retrieve_fn"].assert_not_awaited()
+
+
+@pytest.mark.parametrize("found", [True, False])
+@pytest.mark.asyncio
+async def test_missing_comparison_side_rewrites_with_remaining_budget(found):
+    cn = hit(1, "合成中国规则：普通旅客额度5000元。")
+    kr = hit(2, "合成韩国规则：普通旅客额度800美元。")
+    llm = MockLLM(answer=COMPARISON_GOOD)
+    calls = []
+    def generate(messages):
+        data = json.loads(messages[-1]["content"])
+        calls.append(data)
+        result = json.loads(llm(messages))
+        if data["task"] == "check_evidence":
+            support = [{"chunk_id": e["source"]["chunk_id"]} for e in data["evidence"]]
+            result["complete_answer"]["support"] = support
+            result["applicability"]["support"] = support
+        return json.dumps(result, ensure_ascii=False)
+    deps = dependencies(generate, batches=[[cn], [kr]] if found else [[cn], [cn], [cn]],
+        docs={"doc_1": document(1), "doc_2": document(2, country="KR")})
+    result = await agent_answer(COMPARISON_QUESTION, "retry-comparison", **deps)
+    assert result.state.retrieval_count == (2 if found else 3)
+    assert result.trace.count("rewrite_query") == (1 if found else 2)
+    rewrite = next(c for c in calls if c["task"] == "rewrite_query")
+    assert "KR" in " ".join(rewrite["previous_evidence_check"]["missing_evidence"])
+    assert result.response.status == (ChatStatus.ANSWERED if found else ChatStatus.INSUFFICIENT_EVIDENCE)
+    if not found:
+        assert not any(c["task"] == "generate_answer" for c in calls)
+
+
 def comparison_test(answers, *, complete_both=True, metadata=None, applicable_both=True):
     """Synthetic audit/support and model candidates; not real policy gold."""
     sources = [hit(1, "合成中国规则：普通旅客额度5000元。"), hit(2, "合成韩国规则：普通旅客额度800美元。")]
@@ -1483,7 +1552,7 @@ def comparison_test(answers, *, complete_both=True, metadata=None, applicable_bo
             result["complete_answer"]["support"] = support if complete_both else support[:1]
             result["applicability"]["support"] = support if applicable_both else support[:1]
         return json.dumps(result, ensure_ascii=False)
-    return dependencies(generate, [sources], docs), attempts
+    return dependencies(generate, [sources, sources, sources], docs), attempts
 
 
 @pytest.mark.parametrize("answer", [

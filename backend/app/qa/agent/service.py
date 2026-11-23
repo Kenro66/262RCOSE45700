@@ -12,6 +12,7 @@ from ..citation import Evidence, resolve_citations
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import detect_language
 from .graph import build_graph
+from .conditions import retrieval_policy_scope
 from .nodes import AgentError, AgentErrorType, Dependencies, Nodes, classify_error
 from .state import (AgentChatResponse, AgentResult, AgentState, CachedEvidence,
                     GraphState, normalize_agent_state)
@@ -78,7 +79,9 @@ async def agent_answer(
 
     nodes = Nodes(Dependencies(cast(Retrieval, retrieve_fn), cast(DocumentLookup, get_documents_fn),
                               cast(Generator, generate_fn), complete_evidence_fn),
-                  cached_evidence=list(initial["evidence"]) if preserve_evidence_ids else None,
+                  # Retain the source registry across scope changes so surviving IDs never shift.
+                  cached_evidence=list(initial["evidence"]) if preserve_evidence_ids or (
+                      saved.evidence and retrieval_policy_scope(question, merged) is not None) else None,
                   on_progress=observe if on_progress is not None else None)
     try:
         final = await build_graph(nodes).ainvoke(initial, config={"recursion_limit": 40})
