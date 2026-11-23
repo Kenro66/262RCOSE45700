@@ -3,7 +3,7 @@ import { clarificationFixture, conflictFixture, createMockTransport } from './ch
 
 export function createChatMock(scenario = 'clarify', failOnce = false) {
   const pending = new Map<string, { response: AgentResponse; message: string }>()
-  const transport = createMockTransport()
+  const transport = createMockTransport(undefined, scenario === 'page-range')
   let sequence = 0
   if (failOnce) transport.failNext()
   return async (request: ChatRequest, signal: AbortSignal, korean: boolean): Promise<AgentResponse> => {

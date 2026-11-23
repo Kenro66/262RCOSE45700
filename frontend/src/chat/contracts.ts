@@ -49,3 +49,29 @@ export function displayCitations(response: AgentResponse) {
   const ids = [...new Set([...order, ...byId.keys()])].filter(id => byId.has(id))
   return ids.map((id, index) => ({ ...byId.get(id)!, displayNumber: index + 1 }))
 }
+
+export function citationPageLabels(citations: Citation[]) {
+  const pagesByFile = new Map<string, Set<number>>()
+  for (const { filename, page } of citations) {
+    const pages = pagesByFile.get(filename) ?? new Set<number>()
+    pages.add(page)
+    pagesByFile.set(filename, pages)
+  }
+
+  const labelsByFile = new Map<string, Map<number, string>>()
+  for (const [filename, pages] of pagesByFile) {
+    const sortedPages = [...pages].sort((a, b) => a - b)
+    const labels = new Map<number, string>()
+    for (let first = 0; first < sortedPages.length;) {
+      let last = first
+      while (sortedPages[last + 1] === sortedPages[last] + 1) last++
+      const startPage = sortedPages[first]
+      const endPage = sortedPages[last]
+      const label = startPage === endPage ? `p.${startPage}` : `p.${startPage}–${endPage}`
+      for (let index = first; index <= last; index++) labels.set(sortedPages[index], label)
+      first = last + 1
+    }
+    labelsByFile.set(filename, labels)
+  }
+  return labelsByFile
+}
