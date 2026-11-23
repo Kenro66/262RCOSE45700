@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -36,7 +37,6 @@ async def test_first_question_and_followup_use_real_agent(web):
 async def test_http_p001_explicit_preface_message_only_reaches_retrieval_without_reasking(web):
     """Mock regression for the actual failed input boundary, not policy accuracy."""
     from pathlib import Path
-    import json
     pilot = json.loads((Path(__file__).resolve().parents[3] / "eval/pilot43_questions_v1_40.jsonl").read_text(encoding="utf-8").splitlines()[0])
     message = "적용 조건: 한국 입국; 일반 여행자; 별도면세 대상 제외.\n" + pilot["question"]
     web.control.extra_questions = [
@@ -147,8 +147,9 @@ async def test_cancel_waits_then_allows_same_question_with_edited_conditions(web
     again = await web.client.post("/api/chat", json=submission(qid, country="KR"))
     assert again.status_code == 200 and again.json()["question_id"] == qid
     assert len(web.control.retrievals) == 2
-    assert '"country": "CN"' in web.control.retrievals[0]
-    assert '"country": "KR"' in web.control.retrievals[1]
+    submitted_conditions = [submission(qid, country=value)["conditions"] for value in ("CN", "KR")]
+    for query, conditions in zip(web.control.retrievals, submitted_conditions, strict=True):
+        assert json.loads(query.split("\nConditions: ", 1)[1]) == conditions
     async with web.db.factory() as session:
         state = (await session.get(ChatQuestion, qid)).state
         assert state["retrieval_count"] == 2 and state["clarification_count"] == 1
