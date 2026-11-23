@@ -90,7 +90,15 @@ def explicit_question_scope(question: str) -> dict[str, str]:
     if re.search(r"比较|相比|区别|分别|不同|비교|차이|"
                  r"(?:和|与|及)\s*[\u4e00-\u9fff]{2,8}(?:海关|政策|规定)|"
                  r"(?:와|과|및)\s*[가-힣]{2,8}\s*(?:세관|정책|통관)", question):
-        return {}  # Do not collapse a policy comparison into one supported country.
+        # A shared explicit border-time policy can establish direction without
+        # selecting either comparison country as the destination.
+        directions = {"INBOUND" if v in ("入境", "입국") else "OUTBOUND"
+                      for v in re.findall(r"入境|出境|입국|출국", question)}
+        if len(directions) == 1 and re.search(
+                r"(?:入境|出境)时[^。！？；\n]{0,20}(?:免税|通关|申报|限额|额度)|"
+                r"(?:입국|출국)\s*시[^.!?\n]{0,20}(?:면세|통관|신고|한도)", question):
+            return {"direction": next(iter(directions))}
+        return {}  # Never collapse a comparison into one policy country.
     # A single-country pair must not hide another unqualified border direction.
     directions = set(re.findall(r"入境|出境|입국|출국", question))
     semantic_directions = {"INBOUND" if value in ("入境", "입국") else "OUTBOUND" for value in directions}
@@ -165,6 +173,8 @@ def comparison_policy_countries(question: str) -> tuple[str, ...]:
 
 def retrieval_policy_scope(question: str, raw: dict[str, Any]) -> dict[str, str] | None:
     """Optional narrowing only; never convert an ambiguous itinerary into scope."""
+    if comparison_policy_countries(question):
+        return None
     try:
         known = confirmed_conditions(question, raw)
     except ConditionConflict:

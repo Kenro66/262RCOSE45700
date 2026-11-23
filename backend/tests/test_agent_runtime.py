@@ -467,6 +467,21 @@ async def test_unified_gemma_agent_nodes_and_one_answer_repair_use_same_provider
 A09_COMPARISON = "我在韩国买了一些准备带回中国自用的普通物品。韩国资料和中国资料对旅客免税额度的说法不一样，这次回中国该按哪一套规定办理？"
 
 
+@pytest.mark.asyncio
+async def test_explicit_comparison_precedes_saved_single_country_scope(monkeypatch):
+    import app.storage.repo as repo
+    from app.qa.agent.conditions import comparison_policy_countries, retrieval_policy_scope
+    question = "对比中国的政策和韩国的政策"
+    conditions = {"destination_country": "CN", "direction": "INBOUND"}
+    assert comparison_policy_countries(question) == ("CN", "KR")
+    assert retrieval_policy_scope(question, conditions) is None
+    docs = {key: scope_documents()[key] for key in ("cn", "kr")}
+    monkeypatch.setattr(repo, "get_documents", AsyncMock(return_value=docs))
+    adapter = RealRAG(question, conditions=conditions, document_ids=["cn", "kr"], session_factory=object())
+    assert await adapter._policy_document_ids() == ("cn", "kr")
+    assert adapter._comparison_document_ids == {"CN": ("cn",), "KR": ("kr",)}
+
+
 @pytest.mark.parametrize("question,expected", [
     (A09_COMPARISON, ("CN", "KR")),
     ("中国和韩国政策有什么区别？", ("CN", "KR")),

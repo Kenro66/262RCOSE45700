@@ -26,7 +26,7 @@ from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import build_messages, detect_language
 from ..retriever import RetrievalError
 from .conditions import (CORE_FIELDS, ConditionConflict, comparison_policy_countries, confirmed_conditions, has_value,
-                         outside_supported_policy, validate_new_questions)
+                         outside_supported_policy, retrieval_policy_scope, validate_new_questions)
 from .state import (AgentState, AnswerDecision, Clarification, ConditionsDecision, ConflictDecision,
                     EvidenceDecision, GraphState, RewriteDecision)
 
@@ -461,6 +461,12 @@ class Nodes:
         markers = "".join(f"[{e.evidence_id}]" for e in state["evidence"])
         _, citations = resolve_citations(markers, state["evidence"], documents)
         usable = {c.evidence_id for c in citations}
+        scope = retrieval_policy_scope(state["question"], state["conditions"])
+        if scope is not None and self.cached_evidence is not None:
+            usable = {e.evidence_id for e in state["evidence"] if e.evidence_id in usable
+                      and documents[e.hit.document_id].get("country") in (None, scope["destination_country"])
+                      and ("direction" not in scope or documents[e.hit.document_id].get("direction")
+                           in (None, "BOTH", scope["direction"]))}
         evidence = [e for e in state["evidence"] if e.evidence_id in usable]
         # 过滤失效来源后，重建本次请求使用的证据编号。
         if self.cached_evidence is None:
@@ -477,6 +483,15 @@ class Nodes:
                 assessment["verdict"] = "MISSING_CRITICAL"
                 assessment["deterministic_gaps"] = [gap]
                 assessment["missing_evidence"] = [*decision.missing_evidence, gap]
+            if sufficient and comparison_policy_countries(state["question"]):
+                support = comparison_support(cast(GraphState, {**state, "documents": documents,
+                    "evidence": evidence, "evidence_check_result": assessment}))
+                gaps = [f"Applicable policy evidence for {country} in the requested comparison"
+                        for country, sources in support.items() if not sources]
+                if gaps:
+                    sufficient = False
+                    assessment.update(verdict="MISSING_CRITICAL", accepted_sufficient=False,
+                                      missing_evidence=[*decision.missing_evidence, *gaps])
         update = {"evidence": evidence, "documents": documents, "sufficient": sufficient,
                   "evidence_check_result": assessment}
         if assessment.get("verdict")=="UNSUPPORTED":
