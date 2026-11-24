@@ -47,6 +47,19 @@ beforeEach(() => {
   mockApi()
 })
 
+it('进入 Chat 时只滚动消息区', async () => {
+  const scrollHeight = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(240)
+  const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView).mockClear()
+  try {
+    await openChat()
+    const conversation = document.querySelector('.conversation')
+    expect(conversation?.scrollTop).toBe(240)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  } finally {
+    scrollHeight.mockRestore()
+  }
+})
+
 it.each([404, 500])('keeps the chat layout when the session endpoint returns %i', async (status) => {
   const fetcher = vi.fn(async (url: RequestInfo | URL) => {
     if (url === '/api/documents') return Response.json([readyDocument])

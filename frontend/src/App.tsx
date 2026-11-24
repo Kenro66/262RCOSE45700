@@ -794,7 +794,7 @@ function ChatPage({
   useEffect(() => () => { activeChatRequest.current?.abort() }, [])
   const [selectedCitation, setSelectedCitation] = useState(1)
   const [citationMessageId, setCitationMessageId] = useState<number | null>(null)
-  const messagesEnd = useRef<HTMLDivElement>(null)
+  const conversationScroll = useRef<HTMLElement>(null)
   const messages = conversation?.messages ?? []
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
   const citationMessage = messages.find((message) => message.id === citationMessageId && message.role === 'assistant') ?? latestAssistantMessage
@@ -821,7 +821,10 @@ function ChatPage({
   }
 
   useEffect(() => {
-    if (visible) messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = conversationScroll.current
+    if (visible && container) {
+      container.scrollTop = container.scrollHeight
+    }
   }, [visible, messages.length, loading])
 
   const sessionId = conversation?.session_id
@@ -959,7 +962,7 @@ const sendMessage = () => submitQuestion(input)
           <div className="header-actions"><Button variant="default" onClick={onNewConversation}>{t('history.new')}</Button><LanguageSwitcher/></div>
         </header>
         <ChatMockBanner/>
-        <section className="conversation">
+        <section className="conversation" ref={conversationScroll}>
           <div className="conversation-inner">
             <ChatWelcome visible={messages.length === 0} readyDocumentCount={readyDocumentCount} loading={loading} onSubmit={submitQuestion} onOpenDocuments={onOpenDocuments}/>
             {messages.map((message) => {
@@ -1001,7 +1004,6 @@ const sendMessage = () => submitQuestion(input)
             })}
             {restoreError && <p role="alert">{t('exception.system.body')}</p>}
             {loading && <div className="message-row assistant"><div className="ai-avatar"><Icon name="spark" size={17}/></div><div className="message-wrap"><div className="message-author">Policy AI <span>{t('chat.searching')}</span></div><div className="typing"><i/><i/><i/><span>{t('chat.searchingBody')}</span></div></div></div>}
-            <div ref={messagesEnd}/>
           </div>
         </section>
         <div className="composer-area">
