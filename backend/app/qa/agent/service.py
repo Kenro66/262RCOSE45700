@@ -8,6 +8,7 @@ from uuid import uuid4
 from langgraph.errors import NodeCancelledError
 
 from ...contracts import ChatStatus, Citation, DocumentStatus
+from ...adapters.generation import capture_generation_models
 from ..citation import Evidence, resolve_citations
 from ..orchestrator import Completion, DocumentLookup, Generator, Retrieval
 from ..prompts import detect_language
@@ -84,7 +85,8 @@ async def agent_answer(
                       saved.evidence and retrieval_policy_scope(question, merged) is not None) else None,
                   on_progress=observe if on_progress is not None else None)
     try:
-        final = await build_graph(nodes).ainvoke(initial, config={"recursion_limit": 40})
+        with capture_generation_models() as model_records:
+            final = await build_graph(nodes).ainvoke(initial, config={"recursion_limit": 40})
         citations: list[Citation] = []
         if final["status"] == ChatStatus.ANSWERED:
             _, citations = resolve_citations(final["answer"], final["evidence"], final["documents"])
@@ -113,7 +115,8 @@ async def agent_answer(
                     if final["status"] == ChatStatus.INSUFFICIENT_EVIDENCE else None,
             question_id=final["question_id"], clarification=final["clarification"], conflict=final["conflict"],
         )
-        return AgentResult(response=response, state=snapshot(final, nodes.cached_evidence), trace=final["trace"])
+        return AgentResult(response=response, state=snapshot(final, nodes.cached_evidence), trace=final["trace"],
+                           model_name=model_records[-1] if response.status == ChatStatus.ANSWERED and model_records else None)
     except NodeCancelledError as exc:
         # LangGraph 会包装节点内部依赖抛出的取消异常。
         raise asyncio.CancelledError() from exc

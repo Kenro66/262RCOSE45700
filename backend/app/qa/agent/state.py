@@ -149,6 +149,7 @@ def normalize_agent_state(value: AgentState | dict | None) -> AgentState:
 class AgentResult(BaseModel):
     response: AgentChatResponse
     state: AgentState
+    model_name: str | None = None
     # Execution diagnostics belong to the backend result, never the HTTP response.
     trace: list[str] = Field(default_factory=list)
 
