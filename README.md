@@ -2,51 +2,160 @@
 
 A team project to build a document-based RAG chatbot with document upload, question answering, and source citations.
 
-中韩旅行携带品通关政策文档问答系统：上传政策 PDF，以中文或韩文提问，系统检索原文、生成回答并提供文件名、物理页码及证据原文。
+中韩旅行携带品通关政策文档问答系统：上传官方政策 PDF，用中文或韩文提问，系统检索原文后生成回答，并给出文件名、PDF 物理页码和证据原文。证据不够时拒答，不用模型自己的知识补数字。
 
+> 韩语说明见 [README.ko.md](README.ko.md)。本文以 2026-11-24 的 main 为准。
 
-## 环境与使用范围
+## 目录
 
-- 已验证本地环境：Windows、Python 3.12、CPU PyTorch 2.6.0。安装文件为 `torch==2.6.0+cpu`；全组版本结论在 Issue #5 确认，不承诺其他 Python 版本均兼容。
-- Docker Desktop 已安装且启动；数据库使用 PostgreSQL 18 + pgvector。
-- Embedding 使用 FlagEmbedding 在本地 CPU 运行 `BAAI/bge-m3`，输出1024维稠密向量。
-- 临时生成服务使用 OpenAI-compatible Chat Completions；学校 Baze 配置为已有测试方案，最终模型和 NPU 部署仍待确认。
-- 首次下载模型需要网络、足够磁盘和可用内存。CPU 推理耗时受机器及文档影响，不保证固定完成时间。
-- 外部生成服务会接收问题及检索证据，可能消耗额度；只处理获得授权的资料，使用本人或团队获准使用的密钥。
-- 前端真实接线依赖 PR #29；后端可用不代表页面链路已验收。真实页面联调记录见 Issue #15。
+- [主要功能](#主要功能)
+- [系统结构](#系统结构)
+- [当前进度](#当前进度)
+- [仓库结构](#仓库结构)
+- [本地启动](#本地启动)
+- [API 与问答状态](#api-与问答状态)
+- [前端启动与真实后端联调](#前端启动与真实后端联调)
+- [失败场景验证与排查](#失败场景验证与排查)
+- [CI/CD](#cicd)
+- [部署到服务器](#部署到服务器)
+- [测试与评测](#测试与评测)
+- [限制与安全](#限制与安全)
+- [团队分工](#团队分工)
 
-## 数据库与后端启动
+## 主要功能
 
-以下命令使用 Windows PowerShell，以本 Git 仓库根目录为起点。
+**文件管理**
 
-> 约定：所有 `docker compose` 命令都在仓库根目录执行，并携带 `--env-file backend/.env`。
-> 后端另开一个终端，在 `backend` 目录运行；检查命令不要混用目录。
+- 上传 PDF，后台自动解析、切分、向量化，状态从「处理中」变为「可用」或「失败」
+- 整份 PDF 都没有文字层（如扫描件）时判为失败并给出原因；当前不做 OCR
+- 文件列表显示国家（中国 / 韩国），可删除文件
 
-### 1. 创建 Python 3.12 独立环境
+**问答**
 
-仓库根目录：
+- 回答附带出处：文件名、PDF 物理页码（从 1 开始，不是印刷页码）、证据原文；补全的跨页证据显示连续页码范围
+- 证据不够时返回「找不到依据」，不编造
+- 网页支持中文、韩文界面
+
+**两种问答模式**（改配置 `RAG_MODE` 切换，不改代码）
+
+| 模式 | 做什么 |
+| --- | --- |
+| `single`（默认） | 单次 RAG：检索一次 → 生成 → 引用校验 |
+| `agent` | 用 LangGraph 编排的单个 agent：先检查国家、出入境方向等必要条件，缺了就追问 1 轮；证据不够时改写问题重新检索，每个问题最多检索 3 次；检查文件的国家和方向是否适用；两份文件说法冲突时同时给出双方依据。对话和追问会保存在数据库里，刷新页面后可以继续，也可以取消正在执行的问题 |
+
+agent 模式执行出错时，会自动退回单次 RAG 回答（受控 Fallback）。
+
+## 系统结构
+
+```text
+浏览器（React 网页）
+   │  /api
+   ▼
+后端 FastAPI
+   ├─ 文件：上传 → PyMuPDF 解析 → 切分 → BGE-M3 向量化 → 入库
+   └─ 问答：single 单次 RAG ／ agent（LangGraph）
+             │                     │
+             ▼                     ▼
+   PostgreSQL 18 + pgvector     生成模型（OpenAI 兼容接口）
+   （文件、文本块、向量、对话）
+```
+
+| 部分 | 使用的技术 |
+| --- | --- |
+| 前端 | React 19、TypeScript、Vite |
+| 后端 | Python 3.12、FastAPI、Uvicorn、SQLAlchemy（async） |
+| 数据库 | PostgreSQL 18 + pgvector（向量 1024 维），Docker 运行 |
+| PDF 解析 | PyMuPDF；语言识别 lingua |
+| 嵌入 | `BAAI/bge-m3`，FlagEmbedding 在本地 CPU 运行 |
+| 生成 | OpenAI 兼容的 Chat Completions 接口。`GENERATION_PROFILE` 二选一：`furiosa_gemma`（FuriosaAI NPU 上的 `furiosa-ai/gemma-4-31B-it-FP8-block`）或 `legacy`（自行填写的模型地址，如学校 LLM 网关） |
+| Agent | LangGraph |
+| 检索 | 向量检索 Top-5；可选证据补全（年龄定义、跨页的列举条款） |
+| CI/CD | GitHub Actions；部署到 AWS EC2 |
+
+不使用 LangChain、LlamaIndex 等 RAG 框架，检索、提示词和引用校验都在 `backend/app/qa/` 里自己实现。
+
+## 当前进度
+
+| 阶段 | 时间 | 内容 | 状态 |
+| --- | --- | --- | --- |
+| MVP | ～10/30 | 上传、解析、单次 RAG 问答、出处显示 | 完成 |
+| 第一批 | 11/1～11/15 | agent 编排、追问、正式评测题、CI/CD、AWS 部署 | 大部分已合并，未完成的移到第二批 |
+| 第二批 | 11/16～11/29 | agent 接入后端与网页、单次 RAG / agent 切换、生成换到 NPU、跨页条款 | 进行中 |
+
+各项的具体状态和负责人见 GitHub Issues。
+
+## 仓库结构
+
+```text
+backend/            后端（FastAPI）
+  app/api/          HTTP 接口
+  app/documents/    文件上传与处理
+  app/ingestion/    PDF 解析与切分
+  app/qa/           检索、证据补全、提示词、引用校验；agent/ 是 agent 编排
+  app/chat/         问答接口；persistent/ 是 agent 模式的对话保存、执行和取消
+  app/adapters/     嵌入和生成模型的调用
+  tests/            后端测试
+frontend/           网页（React）
+storage/            数据库建表 schema.sql 和迁移 migrations/
+data/               公开示例 PDF（3 份）与来源登记 sources.csv
+eval/               冒烟题、Pilot 题、正式评测题和结果
+docs/               接口说明、agent 验收题
+deploy/             服务器部署脚本（见「部署到服务器」）
+scripts/            CI 用的检查脚本
+.github/workflows/  CI/CD
+```
+
+政策文件共 5 份（韩国 2 份、中国 3 份），来源都登记在 `data/sources.csv`。仓库里只放其中 3 份公开样本 PDF；另 2 份（KR02、CN03）只登记来源、不提交 PDF，需要时按登记的官方网址下载。
+
+## 本地启动
+
+以下命令都在 Windows PowerShell 里执行，以本仓库根目录为起点。需要同时开 3 个终端：A 数据库、B 后端、C 前端和检查命令。
+
+> 所有 `docker compose` 命令都在仓库根目录执行，并带上 `--env-file backend/.env`。后端在 `backend` 目录运行，不要混用目录。
+
+已验证的环境：Windows、Python 3.12.10、CPU PyTorch 2.6.0（`torch==2.6.0+cpu`）、Docker Desktop 4.97、Node.js 22／24／26。不保证其他版本都兼容。
+
+首次运行要下载嵌入模型（约 2 GB），需要网络、足够的磁盘和内存。CPU 推理速度取决于机器和文件大小。生成服务会收到问题和检索到的证据，可能消耗额度：只处理有授权的资料，只用本人或团队获准使用的 Key。
+
+### 0. 安装 Docker Desktop（第一次才需要）
+
+1. 从 Docker 官网下载 Docker Desktop for Windows
+2. 安装时选 **All users**（为所有用户安装）。默认的 Per-user 安装在 Windows 没开「虚拟机平台」时会失败
+3. 装完后，用**管理员身份**打开 PowerShell（开始菜单搜 PowerShell → 右键「以管理员身份运行」），运行下面这行，然后重启电脑：
+
+```powershell
+wsl --install --no-distribution
+```
+
+4. 重启后打开 Docker Desktop，等左下角显示 Engine running
+
+### 1. 安装 Python 3.12 并建立独立环境
+
+Python 3.12 的新版本已不提供 Windows 安装包，请从 python.org 下载 **3.12.10** 的 Windows installer。安装时**不要勾选 Add python.exe to PATH**，不会影响电脑上已有的 Python。
+
+在仓库根目录：
 
 ```powershell
 py -3.12 --version
 py -3.12 -m venv .venv
 ```
 
-已有 `.venv` 时先确认版本和用途，不覆盖未知环境。直接使用环境内解释器，无需更改 PowerShell 执行策略或系统全局 Python。
+已有 `.venv` 时先确认版本和用途，不要覆盖不明的环境。下面的命令直接用环境里的解释器，不需要改 PowerShell 执行策略。
 
-先安装 CPU PyTorch，再安装其余后端依赖：
+先装 CPU 版 PyTorch，再装其余依赖。依赖包较大（单个约 170 MB），容易下载超时，所以加了 `--timeout 120 --retries 10`：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements-cpu.txt
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -r backend/requirements-cpu.txt
+.\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -r backend/requirements.txt
 .\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\python.exe -c "import sys,torch,FlagEmbedding; print(sys.version); print(torch.__version__); print('imports OK')"
 ```
 
-导入成功不等于真实模型推理成功。部分依赖为范围约束，不是完整锁文件；正式验收应记录实际安装版本。
+看到 `imports OK` 只说明装好了，不代表模型推理已经成功。
 
 ### 2. 建立 backend/.env
 
-仓库根目录，仅在文件不存在时复制，避免覆盖已有密钥和密码：
+在仓库根目录，只在文件不存在时复制模板，避免覆盖已有的密码和 Key：
 
 ```powershell
 if (!(Test-Path backend/.env)) {
@@ -54,44 +163,27 @@ if (!(Test-Path backend/.env)) {
 }
 ```
 
-真实 `.env` 不提交 Git。保留模板字段，在本地填入数据库和生成配置：
+用记事本打开 `backend/.env`，每一项的说明都写在模板注释里。至少要改这几项：
 
-```ini
-# 数据库：密码仅为占位，必须自行替换
-POSTGRES_PASSWORD=REPLACE_WITH_LOCAL_PASSWORD
-DATABASE_URL=postgresql://rag:REPLACE_WITH_LOCAL_PASSWORD@127.0.0.1:5432/p4rag
+| 配置 | 填什么 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | 自己定一个随机字符串（例如 32 位） |
+| `DATABASE_URL` | 把模板里的 `PASSWORD` 换成上面同一个密码 |
+| `GENERATION_PROFILE` | `furiosa_gemma`（用 NPU 上的 Gemma）或 `legacy`（用自己填的模型地址） |
+| 用 `furiosa_gemma` 时 | 把 FuriosaAI 的 Key 写在 `backend/.secrets/furiosa.env`（一行 `FURIOSA_API_KEY=...`），或用 `FURIOSA_API_KEY_FILE` 指定别的路径 |
+| 用 `legacy` 时 | 填 `GENERATION_MODEL`、`GENERATION_BASE_URL`、`GENERATION_API_KEY`（如学校 LLM 网关）。地址只写到 API 根地址，不要加 `/chat/completions` |
+| `RAG_MODE` | `single`（默认）或 `agent` |
 
-# 本地 CPU Embedding
-EMBEDDING_MODEL=BAAI/bge-m3
-EMBEDDING_BASE_URL=
-EMBEDDING_API_KEY=
-EMBEDDING_DIMENSION=1024
-EMBEDDING_BATCH_SIZE=1
-EMBEDDING_MAX_LENGTH=8192
-EMBEDDING_CACHE_DIR=
-EMBEDDING_CPU_THREADS=1
+注意：
 
-# 生成服务：仅示例，模型权限以学校账号为准
-GENERATION_MODEL=gpt-6-sol
-GENERATION_BASE_URL=https://api.baze.co/v1/gateway
-GENERATION_API_KEY=
-GENERATION_TIMEOUT_SECONDS=120
-
-# MVP 默认检索数量
-RETRIEVAL_TOP_K=5
-```
-
-配置说明：
-
-- 用户名固定 `rag`、库名 `p4rag`、默认本机端口5432；DATABASE_URL密码必须对应POSTGRES_PASSWORD。密码含URL保留字符时需正确编码。
-- 已有数据库卷不会因修改 POSTGRES_PASSWORD 自动更新密码；连接不通时请后端核查，不要直接删卷重建。
-- GENERATION_MODEL、GENERATION_BASE_URL、GENERATION_API_KEY 必须符合实际服务授权。密钥通过获准的私下渠道配置，禁止写入仓库、截图或群聊。
-- 生成地址是 API 根地址，不追加 `/chat/completions`，适配器自行追加。
-- EMBEDDING_BASE_URL 当前必须留空；远程 NPU Embedding 未接入，非空会明确报错。EMBEDDING_API_KEY 为预留字段，CPU实现不用。
-- EMBEDDING_CACHE_DIR 可留空；要将模型缓存放D盘，可改为 `D:/RAG-Dev/models/huggingface/hub`，路径按自己机器调整。
-- 1024维是当前模型/数据库约束，不允许只修改维度配置就使用任意模型。批大小和CPU线程必须为正整数，max_length为1–8192。
-- RETRIEVAL_TOP_K默认5，可配置1–100；正式题集不要中途切换。
-- 适配器逐次读取 `.env`，但进程环境变量优先。Uvicorn会加载环境，数据库配置在导入时读取；统一建议修改配置后重启后端。
+- 真实的 `.env` 和 `.secrets/` 不提交 Git。Key 只通过私下渠道传，不写进仓库、截图或群聊
+- 用户名固定 `rag`、库名 `p4rag`、本机端口 5432。密码里有 URL 保留字符（如 `@`、`/`）时要编码
+- 数据库已经建过以后，再改 `POSTGRES_PASSWORD` 不会自动改掉数据库里的密码。连不上时先找后端负责人，不要直接删数据卷重建
+- `EMBEDDING_BASE_URL` 必须留空：当前只支持本地 CPU 运行 BGE-M3，填了会报错
+- 1024 维是模型和数据库共同的约束，不能只改维度去换别的模型
+- `RETRIEVAL_TOP_K` 默认 5（可填 1～100），正式评测时不要中途改
+- `EVIDENCE_COMPLETION_ENABLED=true` 打开证据补全（年龄定义、跨页列举条款），部署和演示都打开
+- 系统环境变量优先于 `.env`。改了配置后重启后端
 
 ### 3. 启动数据库
 
@@ -113,6 +205,8 @@ docker compose --env-file backend/.env exec postgres psql -U rag -d p4rag -c "SE
 ```
 
 预期 documents、chunks 存在，embedding 输出 `vector(1024)`；当前 ORM 可能还包含解析页表，不能将“只有两张表”当作要求。
+
+如果报错里有 `bind: An attempt was made to access a socket in a way forbidden by its access permissions`，是 Windows 把 5432 端口预留了。用管理员身份打开 PowerShell，先运行 `net stop winnat`，回到终端 A 重新启动数据库，启动成功后再运行 `net start winnat`。
 
 ### 4. 启动后端
 
@@ -152,7 +246,7 @@ curl.exe -i http://127.0.0.1:8000/health
 首次处理较慢时查看后台下载和处理日志，不要连续重试上传。低内存时批大小保持1、文档逐份上传，并保存工作、关闭无用程序。
 线程卸载避免阻塞事件循环，但不减少模型内存占用；后台任务依赖当前进程，处理中不要重启应用。
 
-## 独立模型检查（可选，真实调用）
+### 7. 独立模型检查（可选，真实调用）
 
 从 backend 目录执行。中文/韩文Embedding：
 
@@ -170,11 +264,11 @@ curl.exe -i http://127.0.0.1:8000/health
 
 预期非空文本，措辞不固定。这不是完整 RAG 验证，不证明检索、引用或完整工具执行流程已通过。
 
-## 上传 PDF 与真实问答验证
+### 8. 上传 PDF 并提问
 
 不能只看 /health；至少完成“PDF → READY → 提问 → 回答及出处”。建议使用独立开发/验收数据库，不混入无关文件。
 
-### 1. 上传并检查状态
+#### 上传并检查状态
 
 终端C，仓库根目录：
 
@@ -198,9 +292,9 @@ FAILED时查看error_message和日志，不手动修改READY。上传限制：PD
 本轮原PDF保存于backend/uploads/{document_id}.pdf；解析页、Chunk及向量在数据库。
 重复上传会生成不同ID，材料原JSON编号不等于本轮数据库ID。
 
-### 2. 使用正式题单中的可回答题
+#### 提问
 
-确保题目所需政策已READY，例如以下中国方向题需要相应征收政策。完整验收应上传data/的三份MVP政策PDF，不要用单份无关文件测试全部题。
+确保题目所需政策已READY，例如以下中国方向题需要相应征收政策。完整验收应上传 data/ 里的三份 PDF，不要用单份无关文件测试全部题。
 
 ```powershell
 $payload = @{
@@ -212,6 +306,8 @@ $reply = Invoke-RestMethod -Method Post -Uri "$base/api/chat" `
 $reply | ConvertTo-Json -Depth 8
 ```
 
+Windows PowerShell 5.1 里 `Invoke-RestMethod` 显示的中文可能是乱码，这是显示问题，不是后端出错；可以改用 PowerShell 7，或在 `/docs` 页面里看。`RAG_MODE=agent` 时请求格式相同：缺条件时返回 `NEEDS_CLARIFICATION`，还在执行时返回 202，用 API 一节里的 execution 接口查结果。
+
 ANSWERED必须有非空answer和citations；每条包含evidence_id、filename、page、quote。
 到来源PDF物理页查找quote，人工核对答案条件和例外。引用字段齐全不代表事实全部正确。
 INSUFFICIENT_EVIDENCE是正常证据不足结果；SYSTEM_ERROR需检查数据库、生成和校验错误。
@@ -219,34 +315,50 @@ INSUFFICIENT_EVIDENCE是正常证据不足结果；SYSTEM_ERROR需检查数据�
 也可在 `/docs` 操作：POST /api/documents上传 → GET /api/documents确认READY → POST /api/chat发送message。
 Swagger验证不等于真实前端页面验收。
 
-## API 与前端对接
+## API 与问答状态
 
-| 接口 | 请求/返回 |
-|---|---|
-| POST /api/documents | multipart file；201+C1，初始PROCESSING |
-| GET /api/documents | 返回C1数组，无额外外层对象 |
-| DELETE /api/documents/{document_id} | 使用后端真实ID；204，无JSON体 |
-| POST /api/chat | JSON message；session_id可省略；正常200+C5，内部错误500+C5 |
+启动后端后，`http://127.0.0.1:8000/docs` 有可交互的接口文档。
 
-| 问答状态 | 页面处理 |
-|---|---|
-| ANSWERED | 展示answer及真实出处卡片 |
-| INSUFFICIENT_EVIDENCE | 展示answer中的拒答，无引用不显示空卡片 |
-| NO_READY_DOCUMENTS | 展示message，提示上传可用文件 |
-| SYSTEM_ERROR | 解析HTTP500的C5，显示错误/重试提示 |
+**文件**
 
-不认识的status不能空白或按成功展示。上传400的detail、输入422与C5问答响应应分别处理。
-引用page是从1开始的物理页，不是印刷页码；filename来自文档记录，quote来自原始命中正文。
-session_id不提供多轮记忆，conversation.id仅用于页面记录不影响单轮RAG。
-学校网关密钥只能保存在后端，禁止进入前端构建或浏览器请求。
+| 接口 | 请求 / 返回 |
+| --- | --- |
+| `POST /api/documents` | multipart 字段 `file`；返回 201 和文件记录，初始状态 PROCESSING |
+| `GET /api/documents` | 返回文件记录数组 |
+| `DELETE /api/documents/{document_id}` | 返回 204，没有内容 |
+
+**问答**：`RAG_MODE` 不同，`/api/chat` 下的接口也不同
+
+| 模式 | 接口 | 说明 |
+| --- | --- | --- |
+| single | `POST /api/chat` | 发 `message`；正常 200，内部错误 500，都返回同样格式的问答结果 |
+| agent | `POST /api/chat` | 发 `message`，可带 `session_id`；回答追问时再带 `question_id` 和 `conditions`（补充的条件），不改写原问题。还在执行时返回 202 |
+| agent | `GET /api/chat/sessions` | 对话列表 |
+| agent | `GET /api/chat/sessions/{session_id}` | 某个对话的全部问答 |
+| agent | `DELETE /api/chat/sessions/{session_id}` | 删除对话 |
+| agent | `GET /api/chat/sessions/{session_id}/questions/{question_id}/execution` | 查看问题的执行状态 |
+| agent | `POST /api/chat/sessions/{session_id}/questions/{question_id}/cancel` | 取消正在执行的问题 |
+
+**问答状态**
+
+| 状态 | 什么时候出现 | 网页怎么显示 |
+| --- | --- | --- |
+| `ANSWERED` | 找到依据并回答 | 回答 + 出处卡片 |
+| `INSUFFICIENT_EVIDENCE` | 证据不够 | 拒答说明，不显示空出处 |
+| `NO_READY_DOCUMENTS` | 没有可用文件 | 提示先上传文件 |
+| `SYSTEM_ERROR` | 数据库、生成服务等出错 | 错误提示和重试 |
+| `NEEDS_CLARIFICATION` | 缺少国家、出入境方向等必要条件（agent） | 追问问题和填写条件的输入框 |
+| `CONFLICTING_EVIDENCE` | 两份文件说法冲突（agent） | 同时列出双方的依据 |
+
+出处里的 `page` 是从 1 开始的 PDF 物理页码，不是印刷页码；`filename` 来自文件记录，`quote` 来自检索到的原文。生成服务的 Key 只放在后端，不会进入前端或浏览器请求。
 
 ## 前端启动与真实后端联调
 
-前端真实接线依赖 PR #29；合并后先更新本地代码。以下命令从仓库根目录开始，在数据库及后端启动之外，另开终端C运行前端，三个终端均保持运行。
+以下命令从仓库根目录开始，在数据库及后端启动之外，另开终端C运行前端，三个终端均保持运行。
 
 ### 1. 安装前端依赖
 
-项目 `frontend/.mise.toml` 声明 Node.js 22；本机已完成类型检查和构建的环境为 Node.js 24.22.1、npm 11.19.1。组内补充验证记录：Node.js 26.7.0 也可正常运行。以上为已报告的版本验证结果，不表示所有 Node.js 版本均已验证。
+项目 `frontend/.mise.toml` 声明 Node.js 22；组内已在 Node.js 24.22.1（npm 11.19.1）和 26.7.0 上运行过，不表示所有版本都验证过。
 
 ```powershell
 node --version
@@ -311,11 +423,12 @@ Invoke-RestMethod 'http://127.0.0.1:8443/api/documents'
 
 ### 4. 浏览器验收
 
-- Documents：选择 `data/` 中真实政策 PDF，确认列表出现处理中并自动变为可用；上传 `.docx` 应提示只支持 PDF；无文字层的图片 PDF 应显示失败及后端原因；按“所有页都没有文字”规则判定，MVP 扫描件场景可据此验收。
-- Chat：空对话显示4个固定示例问题，点击与手动输入均请求真实后端；答案由已上传且 READY 的文件决定，不预置成功或失败状态。
-- 验证 `ANSWERED`、`INSUFFICIENT_EVIDENCE`、`NO_READY_DOCUMENTS`；另按下文失败场景验证 `SYSTEM_ERROR`。有答案时核对文件名、物理页码和引文；连续两条回答后点击旧回答引用，确认显示旧回答自己的来源。
-- 删除：在自己的独立测试库删除本轮文件，确认列表及可用数量更新；全部删除后提问应提示没有可用文件。
-- 将本轮代码版本、实际测试结果和脱敏截图记录到 Issue #15；新发现的问题按模板逐条评论到 Issue #39，不重复登记 Q003、Q008（由 Issue #13 跟进）；构建通过或页面可打开不等于以上操作已验收。字段仍需后端负责人确认。
+- Documents：上传 `data/` 里的 PDF，列表先显示处理中，再自动变成可用；上传 `.docx` 会提示只支持 PDF；没有文字层的图片 PDF 显示失败和原因
+- Chat：提问后核对回答下方出处的文件名、物理页码和原文；点旧回答的出处，显示的是旧回答自己的来源
+- 验证 `ANSWERED`、`INSUFFICIENT_EVIDENCE`、`NO_READY_DOCUMENTS`；`SYSTEM_ERROR` 按下文失败场景验证
+- `RAG_MODE=agent` 时：问一个缺国家或出入境方向的问题，应出现追问；补充条件后继续回答；刷新页面后对话还在
+- 删除：只在自己的测试库删除自己的文件；全部删除后提问应提示没有可用文件
+- 页面能打开、构建通过，不等于以上操作都验收过
 
 可在 `frontend` 目录检查构建：
 
@@ -347,6 +460,9 @@ docker compose --env-file backend/.env up -d postgres
 
 | 故障 | 首先检查 |
 |---|---|
+| 数据库启动报 5432 端口 access permissions | Windows 预留了端口，见「启动数据库」里的 `net stop winnat` |
+| pip 安装超时 | 加 `--timeout 120 --retries 10` 重试 |
+| PowerShell 里中文乱码 | Windows PowerShell 5.1 的显示问题，改用 PowerShell 7 或 `/docs` |
 | PyTorch导入失败 | Python解释器、CPU依赖及版本，不修改全局环境盲试 |
 | 模型加载失败 | 下载网络、模型名、缓存权限/完整性、磁盘及内存 |
 | PROCESSING长期不变 | 后端日志、首次下载、推理及进程是否崩溃；无自动恢复保证 |
@@ -357,27 +473,64 @@ docker compose --env-file backend/.env up -d postgres
 原README的“从零重建数据库”属于破坏性维护：`docker compose ... down -v`会清空持久化数据，不作为日常排障或新手必做步骤。只有明确授权、独立可丢弃库和备份确认后才可重建。
 当前已知数据库删除失败与文件清理一致性风险尚需后续修复；正常删除通过不能宣称异常一致性已解决。
 
-## 测试、评测与验收记录
+## CI/CD
 
-- 正式题单在eval/questions.jsonl；#18由姜超人工核对答案及出处页码，#13负责页面联调和必要Prompt调整，#19负责整体验收。
-- backend/scripts/record_issue12_real.py可直接运行真实RAG/数据库题集，不是浏览器或/api/chat验收。需显式--run-real、有效.env、已READY资料；只读数据库但写本地结果且调用外部模型，可能计费。
-- 记录模型、题单、代码和索引版本；不能另跑一次检索拼接旧回答。诊断JSON不是14列results.csv，转换工具需另行确认，main当前不包含本地新增的14列模板导出工具。
-- manual_judgment、citation_page_verified、notes由姜超填写，不以自动状态匹配代替人工成绩。
-- 部分单元测试使用模型替身或SQLite；真实PDF切分测试依赖解析夹具和tokenizer，真实Postgres测试可能清表。没有独立测试库授权，不直接运行全部tests。
-- validate_issue9.py要求独立空库，会上传并删除本轮文档，不是只读脚本，先核查权限和风险。
+工作流在 `.github/workflows/ci-cd.yml`。
 
-现有历史真实隔离记录：三份PDF共38页、新版192个Chunk及1024维向量；自动状态匹配9/10，Q003年龄例外、Q008跨页关键条件仍有缺口。
-这些结果不是最新main的浏览器验收，也不保证重复运行稳定。7d9c026引用边界修复只重跑自动化，未为该补丁重新执行真实全流程。
+**CI**：每个发到 main 的 PR、以及 main 的每次更新，都会自动跑下面三项，结果显示在 PR 页面上：
 
-最终需有未参与README编写的组员按本说明从零启动、三份PDF READY、真实扫描件FAILED、页面10题有返回并人工核对出处，在Issue #19记录人员、日期和失败项。
-PR合并或开发Issue关闭不等于MVP验收自动完成。
+| 检查 | 内容 |
+| --- | --- |
+| Backend tests | 后端测试（SQLite 和临时 PostgreSQL）、Ruff 代码检查、mypy 类型检查、本次改动的代码要被测试覆盖 |
+| Frontend build | TypeScript 类型检查、ESLint、前端测试、构建 |
+| Deployment script checks | 部署脚本和工作流文件的检查 |
+
+PR 要经审阅人批准后才能合并。检查没通过时修代码，不靠关闭检查规则或跳过测试让检查变绿。
+
+**CD**：main 更新且三项检查都通过后，「Deploy to EC2」会等待批准；批准人在 Actions 页面点批准后，才部署到 AWS EC2。数据库迁移（`storage/migrations/`）在部署时自动执行。连接服务器用的信息存放在仓库 Secrets 里，不写进代码。
+
+## 部署到服务器
+
+【待补：王诗琪（Issue #47）】服务器需要准备什么、服务器上的 `.env` 要填哪几项（只写名字）、第一次手动部署的步骤、之后怎么更新、怎么确认部署成功、出问题看哪里。数据库迁移的说明见 [deploy/README.md](deploy/README.md)。
+
+部署后的网站没有登录功能，拿到网址的人都能上传、删除文件，也会用掉生成服务的额度。所以网址只私下发给组员、教授和导师，不写在本仓库或其他公开的地方。
+
+## 测试与评测
+
+**自动测试**：在 `backend` 目录运行 `..\.venv\Scripts\python.exe -m pytest tests`。部分测试用模型替身或 SQLite；`test_issue7.py`、`test_e2e_postgres.py` 需要独立的 PostgreSQL 测试库，会清空表，不要指向自己正在用的数据库。前端在 `frontend` 目录运行 `npm.cmd test`。
+
+**评测题**（`eval/`）
+
+| 题集 | 文件 | 用途 |
+| --- | --- | --- |
+| 冒烟题 10 道 | `questions.jsonl`，结果 `results/results.csv` | MVP 验收；agent 不能比单次 RAG 退步 |
+| Pilot 题 40 道 | `pilot43_questions_v1_40.jsonl`，结果 `results/` | 调参数、选模型用 |
+| 正式评测题 30 道 | `issue44_formal28_review.jsonl`（文件名里的 28 是草稿时留下的，实际 30 道） | 11/20 锁定，不再用来调参 |
+| agent 验收题 | `docs/agent/agent_acceptance_cases_20261110.md` | 验收追问、重新检索、冲突等 agent 功能 |
+
+正式评测题的分布：普通问答 12、条件追问 7、国家／出入境方向区分 5、证据不足拒答 6。现有 5 份文件里找不到真正的政策冲突，所以没有冲突题；冲突功能只用模拟数据验证过流程。
+
+真实调用的评测脚本在 `backend/scripts/`（如 `smoke_issue12.py`、`validate_agent_real.py`、`evaluate_agent_quality.py`）。这些脚本会调用外部模型、可能计费，有的会写数据库，运行前先看脚本说明并用独立的测试库。自动判定的结果不能代替人工核对出处页码。
+
+**Pilot 题上的单次 RAG 基线**（11/3，MVP 代码）：可回答题完全正确率 85.7%、综合任务成功率 87.2%、Top-5 命中至少一页标准证据 100%、覆盖全部标准证据页 97.1%、引用文件名／页码／原文匹配 100%、平均响应 8.75 秒。
 
 ## 限制与安全
 
-- 当前单轮RAG，默认Top-k=5；不包含Agent、多轮、OCR、Hybrid Search或Reranking。
-- 数字防护是有限检查，不能完整核验品类、单位、条件和法律含义；引用可映射不等于每个事实均受支持。
-- 更换Embedding模型、标题/正文输入或切分结果后，重建受影响向量，不按旧ID混配历史向量。
-- 不提交真实.env、密钥、模型、缓存、上传文件、完整向量或数据库备份；分享日志前人工脱敏。gitignore不能替代检查已跟踪文件。
-- 此说明面向可信本机开发，不代表具备生产鉴权、租户隔离或公网部署安全；未经评审不开放公网。
+- 只支持有文字层的 PDF，不做 OCR
+- 检索只用向量检索 Top-5，没有混合检索；Reranker 没有启用
+- 追问只做 1 轮；聊天不参考同一对话里之前的问答（多轮记忆未做）
+- 冲突只处理两份文件对同一事项说法真的不同的情况；新旧政策、适用对象不同的冲突未做
+- 数字检查有限，不能完整核对品类、单位、条件和法律含义；引用能对上不等于每句话都有依据，结果仍需人工核对
+- 换嵌入模型、切分方式后，要重建受影响的向量，不能和旧向量混用
+- 不提交真实 `.env`、`backend/.secrets/`、Key、模型、缓存、上传的文件或数据库备份；分享日志前先去掉敏感信息
+- 网站没有登录和权限控制，所有人共用一个文件库
 
+## 团队分工
 
+| 成员 | 负责 |
+| --- | --- |
+| 纪金典（[@Kenro66](https://github.com/Kenro66)） | PM、README、整体验收 |
+| 王诗琪（[@sikiww77](https://github.com/sikiww77)） | 后端、数据库、问答接口、CI/CD 与部署 |
+| 孙忠其（[@sun-cs](https://github.com/sun-cs)） | 切分、检索、生成、引用校验、agent |
+| 王一霖（[@Kruskal086](https://github.com/Kruskal086)） | 网页（Documents、Chat） |
+| 姜超（[@jiangc-666](https://github.com/jiangc-666)） | 评测题与评测结果 |
