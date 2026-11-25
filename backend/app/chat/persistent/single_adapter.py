@@ -1,5 +1,6 @@
 """绑定只检索一次的回退流程，保持普通单次问答的调用逻辑不变。"""
 
+from app.adapters.generation import capture_generation_models
 from app.contracts import ChatStatus
 from app.qa.agent.runtime import RealRAG
 from app.qa.agent.state import AgentChatResponse, AgentResult
@@ -21,12 +22,14 @@ async def execute_single_fallback(data, store, progress, guard):
             return await retrieve(query)
 
         dependencies["retrieve_fn"] = retrieve_with_conditions
-        response = await answer(data["question"], data["session_id"], **dependencies,
-                                execution_context=SingleExecutionContext(conditions, progress, guard))
+        with capture_generation_models() as models:
+            response = await answer(data["question"], data["session_id"], **dependencies,
+                                    execution_context=SingleExecutionContext(conditions, progress, guard))
         await guard.check()
         state = progress.snapshot(progress.state)
         payload = response.model_dump()
         if response.status == ChatStatus.INSUFFICIENT_EVIDENCE:
             payload["message"] = response.message or response.answer
             payload["answer"] = None
-        return AgentResult(response=AgentChatResponse(**payload, question_id=data["question_id"]), state=state)
+        return AgentResult(response=AgentChatResponse(**payload, question_id=data["question_id"]), state=state,
+                           model_name=models[-1] if response.status == ChatStatus.ANSWERED and models else None)

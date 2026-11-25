@@ -152,6 +152,7 @@ class ChatResponse(BaseModel):
     status: ChatStatus
     answer: Optional[str] = None
     citations: list[Citation] = Field(default_factory=list)
+    model_name: str | None = None
     message: Optional[str] = None  # 给用户看的提示，例如拒答原因
 
 
