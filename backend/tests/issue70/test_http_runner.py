@@ -356,7 +356,8 @@ async def test_all_six_business_statuses_keep_extended_response_fields(db, statu
         if status == "CONFLICTING_EVIDENCE":
             values["citations"].append({"evidence_id": "E2", "filename": "b.pdf", "page": 2, "quote": "政策 B"})
             values["conflict"] = {"reason": "来源结论不一致", "side_a": ["E1"], "side_b": ["E2"]}
-        return AgentResult(response=AgentChatResponse(**values), state=AgentState.model_validate(data["state"]))
+        return AgentResult(response=AgentChatResponse(**values), state=AgentState.model_validate(data["state"]),
+                           model_name="agent-provider-model")
 
     runner = ChatRunner(db.store, executor)
     application = FastAPI()
@@ -367,6 +368,7 @@ async def test_all_six_business_statuses_keep_extended_response_fields(db, statu
             assert result.status_code == 200
             body = result.json()
             assert body["status"] == status and body["question_id"] and body["session_id"]
+            assert body["model_name"] == ("agent-provider-model" if status == "ANSWERED" else None)
             if status == "ANSWERED":
                 assert body["answer"] == "结论 [E1]"
                 assert body["citations"] == [{"evidence_id": "E1", "filename": "a.pdf", "page": 1, "quote": "政策 A"}]

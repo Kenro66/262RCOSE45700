@@ -159,12 +159,17 @@ async def test_managed_native_agent_preserves_controlled_single_routing(executio
 
 
 @pytest.mark.parametrize("profile", ["furiosa_gemma", "legacy"])
-@pytest.mark.parametrize("workflow_failure", [False, True])
+@pytest.mark.parametrize("outcome", ["agent", "fallback", "fallback_no_record", "fallback_refusal"])
 async def test_http_native_profile_fallback_uses_single_messages_and_same_provider(
-        database, services, monkeypatch, profile, workflow_failure):
+        database, services, monkeypatch, profile, outcome):
     """Real HTTP routing/graph/store/adapter; only external IO is Fake/Mock."""
     import httpx
     from app.adapters import config, generation
+    workflow_failure = outcome != "agent"
+    fallback_refusal = outcome == "fallback_refusal"
+    fallback_answer = json.dumps({
+        "answer": "测试规则原文。[E1]", "insufficient_evidence": fallback_refusal,
+    })
     raw = {"GENERATION_PROFILE": profile, "FURIOSA_API_KEY": "synthetic-furiosa",
            "GENERATION_MODEL": "synthetic-legacy", "GENERATION_BASE_URL": "https://legacy.invalid/v1",
            "GENERATION_API_KEY": "synthetic-legacy-key", "GENERATION_TIMEOUT_SECONDS": "3",
@@ -187,7 +192,7 @@ async def test_http_native_profile_fallback_uses_single_messages_and_same_provid
         if task == "single":
             assert "response_format" not in payload
             assert "Confirmed applicability conditions" in payload["messages"][-1]["content"]
-            content = json.dumps({"answer": "测试规则原文。[E1]", "insufficient_evidence": False})
+            content = fallback_answer
         else:
             assert payload["response_format"]["json_schema"]["strict"] is True
             if task == "check_evidence":
@@ -207,6 +212,13 @@ async def test_http_native_profile_fallback_uses_single_messages_and_same_provid
     monkeypatch.setattr(generation, "generate_text", provider_generate_text)
     monkeypatch.setattr("app.qa.agent.generation.generate_text", provider_generate_text)
     monkeypatch.setattr(generation.httpx, "Client", lambda **kw: client_type(transport=httpx.MockTransport(respond), **kw))
+    if outcome == "fallback_no_record":
+        def generate_without_fallback_record(messages, **kwargs):
+            if "Confirmed applicability conditions" in messages[-1]["content"]:
+                return fallback_answer
+            return provider_generate_text(messages, **kwargs)
+
+        monkeypatch.setattr(generation, "generate_text", generate_without_fallback_record)
     runner = ChatRunner(database.store)
     app = FastAPI()
     app.include_router(build_persistent_chat_router(database.store, runner), prefix="/api")
@@ -214,7 +226,7 @@ async def test_http_native_profile_fallback_uses_single_messages_and_same_provid
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/chat", json={"message": "测试规则如何适用？"})
             body = response.json()
-            expected = "provider-single" if workflow_failure else "provider-generate_answer"
+            expected = {"agent": "provider-generate_answer", "fallback": "provider-single"}.get(outcome)
             url = f"/api/chat/sessions/{body['session_id']}/questions/{body['question_id']}/execution"
             execution = await client.get(url)
             assert response.status_code == execution.status_code == 200
@@ -223,10 +235,14 @@ async def test_http_native_profile_fallback_uses_single_messages_and_same_provid
         await runner.close()
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["execution_status"] == "SUCCEEDED" and body["status"] == "ANSWERED"
-    assert body["citations"][0]["evidence_id"] == "E1"
-    assert body["citations"][0]["quote"] == "测试规则原文。"
-    assert sum(task == "single" for task, _ in calls) == int(workflow_failure)
+    assert body["execution_status"] == "SUCCEEDED"
+    if fallback_refusal:
+        assert body["status"] == "INSUFFICIENT_EVIDENCE" and body["citations"] == []
+    else:
+        assert body["status"] == "ANSWERED"
+        assert body["citations"][0]["evidence_id"] == "E1"
+        assert body["citations"][0]["quote"] == "测试规则原文。"
+    assert sum(task == "single" for task, _ in calls) == int(outcome in {"fallback", "fallback_refusal"})
     async with database.factory() as session:
         submission = await session.scalar(select(ChatSubmission).where(ChatSubmission.question_id == body["question_id"]))
         question = await session.get(ChatQuestion, body["question_id"])
