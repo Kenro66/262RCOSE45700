@@ -692,6 +692,7 @@ function CitationPanel({
 function MessageAuthor({ message }: { message: Message }) {
   const { locale, t } = useI18n()
   const isAssistant = message.role === 'assistant'
+  const modelName = isAssistant ? message.apiResponse?.model_name?.trim() : undefined
   const showDocumentLabel = isAssistant
     && message.responseStatus !== 'NO_READY_DOCUMENTS'
     && message.responseStatus !== 'SYSTEM_ERROR'
@@ -699,6 +700,7 @@ function MessageAuthor({ message }: { message: Message }) {
   return (
     <div className="message-author">
       {isAssistant ? 'Policy AI' : t('chat.consultant')}
+      {modelName && <span className="message-model">{t('chat.modelName', { name: modelName })}</span>}
       {showDocumentLabel && <span>{mockChatEnabled ? previewMessages[locale].based : t('chat.basedOnDocuments')}</span>}
     </div>
   )

@@ -107,6 +107,7 @@ export const koKR: Record<TranslationKey, string> = {
   'chat.userAvatar': '상',
   'chat.answerUnavailable': '이 답변은 만료되었습니다. 최신 답변을 받으려면 다시 질문해 주세요.',
   'chat.basedOnDocuments': '업로드 문서 기반',
+  'chat.modelName': '모델: {name}',
   'chat.retry': '다시 시도',
   'chat.searching': '검색 중',
   'chat.searchingBody': '정책 문서를 검색하고 답변을 구성하고 있습니다',

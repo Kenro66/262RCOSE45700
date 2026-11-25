@@ -10,6 +10,7 @@ export type AgentResponse = {
   status: 'ANSWERED' | 'INSUFFICIENT_EVIDENCE' | 'NEEDS_CLARIFICATION'
     | 'CONFLICTING_EVIDENCE' | 'NO_READY_DOCUMENTS' | 'SYSTEM_ERROR'
   answer: string | null; citations: Citation[]; message: string | null
+  model_name?: string | null
   question_id?: string; clarification?: Clarification | null; conflict?: Conflict | null
 }
 export type ChatRequest = { message: string; session_id: string; question_id?: never; conditions?: never } | FollowupRequest

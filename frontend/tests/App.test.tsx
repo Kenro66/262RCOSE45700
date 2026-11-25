@@ -178,10 +178,13 @@ describe('文件页面需求', () => {
 describe('问答页面需求', () => {
   it('CHAT-01：ANSWERED 展示回答、真实文件名、物理页码和证据原文', async () => {
     const fetcher = mockApi()
-    fetcher.mockImplementation(async (url) => Response.json(url === '/api/chat' ? answered : [readyDocument]))
+    fetcher.mockImplementation(async (url) => Response.json(url === '/api/chat'
+      ? { ...answered, model_name: 'single-provider-model' } : [readyDocument]))
     const user = await openChat()
     await ask(user)
     expect(await screen.findByText('应当按照证据办理申报。')).toBeVisible()
+    const modelLabel = screen.getByText('模型：single-provider-model')
+    expect(modelLabel.closest('.message-author')).toHaveTextContent('Policy AI')
     expect(screen.getByText('中国政策.pdf')).toBeVisible()
     expect(screen.getByText('PDF p.3')).toBeVisible()
     expect(screen.getByText('应当书面申报。')).toBeVisible()
@@ -194,11 +197,12 @@ describe('问答页面需求', () => {
   ] as const)('CHAT-02：%s 显示拒答或提示，不展示虚构引用', async (status, text) => {
     const fetcher = mockApi()
     fetcher.mockImplementation(async (url) => Response.json(url === '/api/chat'
-      ? { status, answer: status === 'INSUFFICIENT_EVIDENCE' ? text : null, citations: [], message: text }
+      ? { status, answer: status === 'INSUFFICIENT_EVIDENCE' ? text : null, citations: [], message: text, model_name: null }
       : [readyDocument]))
     const user = await openChat()
     await ask(user)
     expect(await screen.findByText(text)).toBeVisible()
+    expect(screen.queryByText(/^模型：/)).not.toBeInTheDocument()
     expect(screen.queryByText('PDF p.3')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '[1]' })).not.toBeInTheDocument()
     if (status === 'NO_READY_DOCUMENTS') {
@@ -585,7 +589,8 @@ it('切页续跑，恢复时轮询未完成的请求并保留本地问题', asyn
     if (url === '/api/chat/sessions/running/questions/q1/execution') {
       executionReads += 1
       const running = executionReads === 1
-      return Response.json({ execution_status: running ? 'RUNNING' : 'SUCCEEDED', retryable: false, response: running ? null : answered })
+      return Response.json({ execution_status: running ? 'RUNNING' : 'SUCCEEDED', retryable: false,
+        response: running ? null : { ...answered, model_name: 'restored-provider-model' } })
     }
     if (url === '/api/chat') {
       hasSubmitted = true
@@ -597,6 +602,7 @@ it('切页续跑，恢复时轮询未完成的请求并保留本地问题', asyn
   const user = await openChat()
   await screen.findByText('旧问题', { selector: '.message-text' })
   await screen.findByText('应当按照证据办理申报。', { selector: '.message-text' }, { timeout: 2000 })
+  expect(screen.getByText('模型：restored-provider-model')).toBeVisible()
   expect(executionReads).toBeGreaterThanOrEqual(2)
   await ask(user, '切页续跑的问题')
   expect(hasSubmitted).toBe(true)
