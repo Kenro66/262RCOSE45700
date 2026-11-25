@@ -1,0 +1,928 @@
+{
+  "P001": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER"
+    },
+    "source_input_text": {
+      "question": "한국 여행자의 일반 휴대품 기본면세범위는 미화 얼마까지인가요?",
+      "conditions": "한국 입국; 일반 여행자; 별도면세 대상 제외"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 일반 여행자; 별도면세 대상 제외",
+      "direction": "한국 입국; 일반 여행자; 별도면세 대상 제외 | 한국 여행자의 일반 휴대품 기본면세범위는 미화 얼마까지인가요?",
+      "traveler_status": "한국 여행자의 일반 휴대품 기본면세범위는 미화 얼마까지인가요?\n한국 입국; 일반 여행자; 별도면세 대상 제외"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P002": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "item_name": "향수"
+    },
+    "source_input_text": {
+      "question": "한국 입국 여행자가 별도 면세범위로 가져올 수 있는 향수는 최대 몇 mL인가요?",
+      "conditions": "한국 입국; 일반 여행자; 향수"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 일반 여행자; 향수",
+      "direction": "한국 입국; 일반 여행자; 향수 | 한국 입국 여행자가 별도 면세범위로 가져올 수 있는 향수는 최대 몇 mL인가요?",
+      "traveler_status": "한국 입국 여행자가 별도 면세범위로 가져올 수 있는 향수는 최대 몇 mL인가요?\n한국 입국; 일반 여행자; 향수",
+      "item_name": "한국 입국 여행자가 별도 면세범위로 가져올 수 있는 향수는 최대 몇 mL인가요?\n한국 입국; 일반 여행자; 향수"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P003": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "item_name": "주류"
+    },
+    "source_input_text": {
+      "question": "한국에 입국하는 일반 여행자의 주류 별도 면세범위에서 용량과 총 가격 기준은 각각 얼마인가요?",
+      "conditions": "한국 입국; 일반 여행자; 술"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 일반 여행자; 술",
+      "direction": "한국 입국; 일반 여행자; 술 | 한국에 입국하는 일반 여행자의 주류 별도 면세범위에서 용량과 총 가격 기준은 각각 얼마인가요?",
+      "traveler_status": "한국에 입국하는 일반 여행자의 주류 별도 면세범위에서 용량과 총 가격 기준은 각각 얼마인가요?\n한국 입국; 일반 여행자; 술",
+      "item_name": "한국에 입국하는 일반 여행자의 주류 별도 면세범위에서 용량과 총 가격 기준은 각각 얼마인가요?\n한국 입국; 일반 여행자; 술"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P004": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "동반가족이 함께 한국에 입국하는 경우, 세관신고를 대표자 한 명이 일괄해서 할 수 있나요?",
+      "conditions": "한국 입국; 동반가족; 신고서 제출"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 동반가족; 신고서 제출",
+      "direction": "한국 입국; 동반가족; 신고서 제출 | 동반가족이 함께 한국에 입국하는 경우, 세관신고를 대표자 한 명이 일괄해서 할 수 있나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P005": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국 입국 시 신고대상 물품이 없더라도 세관장이 신고서 제출을 요구하면 어떻게 해야 하나요?",
+      "conditions": "한국 입국; 세관장의 제출 요구"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 세관장의 제출 요구",
+      "direction": "한국 입국; 세관장의 제출 요구 | 한국 입국 시 신고대상 물품이 없더라도 세관장이 신고서 제출을 요구하면 어떻게 해야 하나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P006": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국 입국 단체 학생여행에서 대표자 1명이 일괄 신고하려면 어떤 조건이 필요한가요?",
+      "conditions": "한국 입국; 단체학생여행; 세관장 판단"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 단체학생여행; 세관장 판단",
+      "direction": "한국 입국; 단체학생여행; 세관장 판단 | 한국 입국 단체 학생여행에서 대표자 1명이 일괄 신고하려면 어떤 조건이 필요한가요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P007": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국에 입국하면서 별송품이나 미검수하물이 있으면 신고서에 적어 제출해야 하나요?",
+      "conditions": "한국 입국; 별송품 또는 미검수하물"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 별송품 또는 미검수하물",
+      "direction": "한국 입국; 별송품 또는 미검수하물 | 한국에 입국하면서 별송품이나 미검수하물이 있으면 신고서에 적어 제출해야 하나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P008": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER"
+    },
+    "source_input_text": {
+      "question": "한국에 입국하는 일반 여행자가 해외에서 취득한 물품의 총액이 800달러를 넘으면 신고대상인가요?",
+      "conditions": "한국 입국; 일반 여행자; 해외취득 물품"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 일반 여행자; 해외취득 물품",
+      "direction": "한국 입국; 일반 여행자; 해외취득 물품 | 한국에 입국하는 일반 여행자가 해외에서 취득한 물품의 총액이 800달러를 넘으면 신고대상인가요?",
+      "traveler_status": "한국에 입국하는 일반 여행자가 해외에서 취득한 물품의 총액이 800달러를 넘으면 신고대상인가요?\n한국 입국; 일반 여행자; 해외취득 물품"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P009": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국에 판매 목적으로 사용할 물품을 휴대해 입국하면 세관에 신고해야 하나요?",
+      "conditions": "한국 입국; 판매 또는 사업 목적"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 판매 또는 사업 목적",
+      "direction": "한국 입국; 판매 또는 사업 목적 | 한국에 판매 목적으로 사용할 물품을 휴대해 입국하면 세관에 신고해야 하나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P010": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "item_name": "담배"
+    },
+    "source_input_text": {
+      "question": "한국 세관의 담배 신고 규정에서 “만 19세 미만”의 예외는 언제부터 적용되나요?",
+      "conditions": "한국 입국; 만 19세가 되는 해의 1월 1일; 담배 신고"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 만 19세가 되는 해의 1월 1일; 담배 신고",
+      "direction": "한국 입국; 만 19세가 되는 해의 1월 1일; 담배 신고 | 한국 세관의 담배 신고 규정에서 “만 19세 미만”의 예외는 언제부터 적용되나요?",
+      "item_name": "한국 세관의 담배 신고 규정에서 “만 19세 미만”의 예외는 언제부터 적용되나요?\n한국 입국; 만 19세가 되는 해의 1월 1일; 담배 신고"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P011": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국 입국장에서 휴대품 전자신고를 하는 사람을 위한 통로는 무엇인가요?",
+      "conditions": "한국 입국; 전자신고"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 전자신고",
+      "direction": "한국 입국; 전자신고 | 한국 입국장에서 휴대품 전자신고를 하는 사람을 위한 통로는 무엇인가요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P012": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국에 입국하며 신고대상물품을 신고하지 않아 과세되는 경우, 법정 특별요건에 따른 가산세율은 몇 퍼센트인가요?",
+      "conditions": "한국 입국; 미신고 과세; 관세법 시행령 제247조제4항 해당"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 미신고 과세; 관세법 시행령 제247조제4항 해당",
+      "direction": "한국 입국; 미신고 과세; 관세법 시행령 제247조제4항 해당 | 한국에 입국하며 신고대상물품을 신고하지 않아 과세되는 경우, 법정 특별요건에 따른 가산세율은 몇 퍼센트인가요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P013": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국 세관이 유치한 여행자 휴대품의 기본 장치기간은 얼마나 되나요?",
+      "conditions": "한국 입국; 유치물품"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 유치물품",
+      "direction": "한국 입국; 유치물품 | 한국 세관이 유치한 여행자 휴대품의 기본 장치기간은 얼마나 되나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P014": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국 세관에 예치한 휴대품의 장치기간은 어떤 기간을 기준으로 정해지나요?",
+      "conditions": "한국 입국; 예치물품"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 예치물품",
+      "direction": "한국 입국; 예치물품 | 한국 세관에 예치한 휴대품의 장치기간은 어떤 기간을 기준으로 정해지나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P015": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "item_name": "한약"
+    },
+    "source_input_text": {
+      "question": "한국 입국 여행자의 농림축수산물·한약재 등 면세 기준상 총중량과 전체 취득가격 한도는 얼마인가요?",
+      "conditions": "한국 입국; 농림축수산물·한약재 등; 검역 조건"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 농림축수산물·한약재 등; 검역 조건",
+      "direction": "한국 입국; 농림축수산물·한약재 등; 검역 조건 | 한국 입국 여행자의 농림축수산물·한약재 등 면세 기준상 총중량과 전체 취득가격 한도는 얼마인가요?",
+      "item_name": "한국 입국 여행자의 농림축수산물·한약재 등 면세 기준상 총중량과 전체 취득가격 한도는 얼마인가요?\n한국 입국; 농림축수산물·한약재 등; 검역 조건"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P016": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND",
+      "item_name": "한약"
+    },
+    "source_input_text": {
+      "question": "한국 입국 시 한약 면세범위는 해외취득가격과 품목 수가 각각 얼마 이하여야 하나요?",
+      "conditions": "한국 입국; 한약"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 한약",
+      "direction": "한국 입국; 한약 | 한국 입국 시 한약 면세범위는 해외취득가격과 품목 수가 각각 얼마 이하여야 하나요?",
+      "item_name": "한국 입국 시 한약 면세범위는 해외취득가격과 품목 수가 각각 얼마 이하여야 하나요?\n한국 입국; 한약"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P017": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국에 함께 입국하는 가족 2명 이상이 800달러를 넘는 물품 한 개를 반입하면 면세 판단 시 어떻게 보나요?",
+      "conditions": "한국 입국; 동반가족 2명 이상; 800달러 초과 단일물품"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 동반가족 2명 이상; 800달러 초과 단일물품",
+      "direction": "한국 입국; 동반가족 2명 이상; 800달러 초과 단일물품 | 한국에 함께 입국하는 가족 2명 이상이 800달러를 넘는 물품 한 개를 반입하면 면세 판단 시 어떻게 보나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P018": {
+    "facts": {
+      "destination_country": "KR",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "한국 입국 시 자진 신고한 여행자의 영수증 가격은 원칙적으로 어떻게 인정되나요?",
+      "conditions": "한국 입국; 자진 신고; 영수증 제시"
+    },
+    "fact_provenance": {
+      "destination_country": "한국 입국; 자진 신고; 영수증 제시",
+      "direction": "한국 입국; 자진 신고; 영수증 제시 | 한국 입국 시 자진 신고한 여행자의 영수증 가격은 원칙적으로 어떻게 인정되나요?"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P019": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "RESIDENT_TRAVELER"
+    },
+    "source_input_text": {
+      "question": "按照入库的中国税收办法，居民旅客带入的境外购买行李物品，一般免税总值上限是多少人民币？",
+      "conditions": "入境中国内地; 居民旅客; 个人自用"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 居民旅客; 个人自用",
+      "direction": "入境中国内地; 居民旅客; 个人自用 | 按照入库的中国税收办法，居民旅客带入的境外购买行李物品，一般免税总值上限是多少人民币？",
+      "traveler_status": "按照入库的中国税收办法，居民旅客带入的境外购买行李物品，一般免税总值上限是多少人民币？\n入境中国内地; 居民旅客; 个人自用"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P020": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "NON_RESIDENT_TRAVELER"
+    },
+    "source_input_text": {
+      "question": "非居民旅客入境中国内地，拟留在境内的行李物品一般免税总值是多少人民币以内？",
+      "conditions": "入境中国内地; 非居民旅客; 留在境内的物品"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 非居民旅客; 留在境内的物品",
+      "direction": "入境中国内地; 非居民旅客; 留在境内的物品 | 非居民旅客入境中国内地，拟留在境内的行李物品一般免税总值是多少人民币以内？",
+      "traveler_status": "非居民旅客入境中国内地，拟留在境内的行李物品一般免税总值是多少人民币以内？\n入境中国内地; 非居民旅客; 留在境内的物品"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P021": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "香烟",
+      "departure_region": "HK_OR_MO"
+    },
+    "source_input_text": {
+      "question": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？",
+      "conditions": "入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境",
+      "direction": "入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境 | 旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？",
+      "traveler_status": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？\n入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境",
+      "frequent_traveler": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？\n入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境",
+      "is_adult": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？\n入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境",
+      "item_name": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？\n入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境",
+      "departure_region": "旅客从香港或澳门入境中国内地，香烟（含加热卷烟）免税数量是多少支？\n入境中国内地; 来自香港或澳门; 一般旅客; 成年; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P022": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "雪茄",
+      "departure_region": "HK_OR_MO"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？",
+      "conditions": "入境中国内地; 香港或澳门; 成年; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 香港或澳门; 成年; 非经常出入境",
+      "direction": "入境中国内地; 香港或澳门; 成年; 非经常出入境 | 一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？",
+      "traveler_status": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？\n入境中国内地; 香港或澳门; 成年; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？\n入境中国内地; 香港或澳门; 成年; 非经常出入境",
+      "is_adult": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？\n入境中国内地; 香港或澳门; 成年; 非经常出入境",
+      "item_name": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？\n入境中国内地; 香港或澳门; 成年; 非经常出入境",
+      "departure_region": "一般成年旅客从香港或澳门入境中国内地，雪茄免税限量是多少支？\n入境中国内地; 香港或澳门; 成年; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P023": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "香烟",
+      "departure_region": "KR"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？",
+      "conditions": "入境中国内地; 非港澳地区; 成年; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "direction": "入境中国内地; 非港澳地区; 成年; 非经常出入境 | 一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？",
+      "traveler_status": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "is_adult": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "item_name": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "departure_region": "一般成年旅客从韩国入境中国内地，如果携带雪茄而非香烟，雪茄免税数量是多少支？\n入境中国内地; 非港澳地区; 成年; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P024": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "烟丝",
+      "departure_region": "KR"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？",
+      "conditions": "入境中国内地; 非港澳地区; 成年; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "direction": "入境中国内地; 非港澳地区; 成年; 非经常出入境 | 一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？",
+      "traveler_status": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "is_adult": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "item_name": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？\n入境中国内地; 非港澳地区; 成年; 非经常出入境",
+      "departure_region": "一般成年旅客从韩国入境中国内地，烟丝的免税限量是多少克？\n入境中国内地; 非港澳地区; 成年; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P025": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "电子烟烟具",
+      "departure_region": "NON_HK_MO"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？",
+      "conditions": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "direction": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境 | 一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？",
+      "traveler_status": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "is_adult": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "item_name": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "departure_region": "一般成年旅客从非港澳地区入境中国内地，电子烟烟具的免税限量是多少个？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P026": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "电子烟烟具及烟弹、烟液",
+      "departure_region": "NON_HK_MO"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？",
+      "conditions": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "direction": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境 | 一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？",
+      "traveler_status": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "is_adult": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "item_name": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "departure_region": "一般成年旅客从非港澳地区入境中国内地，电子烟烟弹最多多少个、合计烟液不超过多少毫升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P027": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "FREQUENT_TRAVELER",
+      "frequent_traveler": "true",
+      "is_adult": "true",
+      "item_name": "电子烟烟具及烟弹、烟液"
+    },
+    "source_input_text": {
+      "question": "成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？",
+      "conditions": "入境中国内地; 成年; 经常出入境人员"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 成年; 经常出入境人员",
+      "direction": "入境中国内地; 成年; 经常出入境人员 | 成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？",
+      "traveler_status": "成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？\n入境中国内地; 成年; 经常出入境人员",
+      "frequent_traveler": "成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？\n入境中国内地; 成年; 经常出入境人员",
+      "is_adult": "成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？\n入境中国内地; 成年; 经常出入境人员",
+      "item_name": "成年经常出入境人员进入中国内地，电子烟烟具和烟液免税限量分别是多少？\n入境中国内地; 成年; 经常出入境人员"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P028": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "12度以上酒精饮料",
+      "departure_region": "KR"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？",
+      "conditions": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "direction": "入境中国内地; 一般成年旅客; 非港澳; 非经常出入境 | 一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？",
+      "traveler_status": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "is_adult": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "item_name": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境",
+      "departure_region": "一般成年旅客从韩国入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 一般成年旅客; 非港澳; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P029": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "GENERAL_TRAVELER",
+      "frequent_traveler": "false",
+      "is_adult": "true",
+      "item_name": "12度以上酒精饮料",
+      "departure_region": "MO"
+    },
+    "source_input_text": {
+      "question": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？",
+      "conditions": "入境中国内地; 澳门; 一般成年旅客; 非经常出入境"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 澳门; 一般成年旅客; 非经常出入境",
+      "direction": "入境中国内地; 澳门; 一般成年旅客; 非经常出入境 | 一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？",
+      "traveler_status": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 澳门; 一般成年旅客; 非经常出入境",
+      "frequent_traveler": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 澳门; 一般成年旅客; 非经常出入境",
+      "is_adult": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 澳门; 一般成年旅客; 非经常出入境",
+      "item_name": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 澳门; 一般成年旅客; 非经常出入境",
+      "departure_region": "一般成年旅客从澳门入境中国内地，12度以上酒精饮料免税限量是多少升？\n入境中国内地; 澳门; 一般成年旅客; 非经常出入境"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P030": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "FREQUENT_TRAVELER",
+      "frequent_traveler": "true",
+      "is_adult": "true",
+      "item_name": "12度以上酒精饮料"
+    },
+    "source_input_text": {
+      "question": "成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？",
+      "conditions": "入境中国内地; 成年; 经常出入境人员"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 成年; 经常出入境人员",
+      "direction": "入境中国内地; 成年; 经常出入境人员 | 成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？",
+      "traveler_status": "成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？\n入境中国内地; 成年; 经常出入境人员",
+      "frequent_traveler": "成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？\n入境中国内地; 成年; 经常出入境人员",
+      "is_adult": "成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？\n入境中国内地; 成年; 经常出入境人员",
+      "item_name": "成年经常出入境人员能否免税携带12度以上的酒精饮料进入中国内地？\n入境中国内地; 成年; 经常出入境人员"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P031": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "中国的进境行李超过规定免税总值时，是对全部物品征税，还是只对超出部分征税？不可分割的单件物品呢？",
+      "conditions": "入境中国内地; 行李超过免税数额; 不可分割单件物品例外"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 行李超过免税数额; 不可分割单件物品例外",
+      "direction": "入境中国内地; 行李超过免税数额; 不可分割单件物品例外 | 中国的进境行李超过规定免税总值时，是对全部物品征税，还是只对超出部分征税？不可分割的单件物品呢？"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P032": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "经中国海关核准的复进境行李物品，是否计入一般免税总值？",
+      "conditions": "中国内地; 经海关核准; 复进境行李物品"
+    },
+    "fact_provenance": {
+      "destination_country": "中国内地; 经海关核准; 复进境行李物品",
+      "direction": "中国内地; 经海关核准; 复进境行李物品 | 经中国海关核准的复进境行李物品，是否计入一般免税总值？"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P033": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "按照进境物品税收办法，应征税额为50元人民币的寄递物品，海关是否予以免税放行？",
+      "conditions": "中国内地; 寄递物品; 应征税额50元人民币"
+    },
+    "fact_provenance": {
+      "destination_country": "中国内地; 寄递物品; 应征税额50元人民币",
+      "direction": "中国内地; 寄递物品; 应征税额50元人民币 | 按照进境物品税收办法，应征税额为50元人民币的寄递物品，海关是否予以免税放行？"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P034": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND",
+      "traveler_status": "FREQUENT_TRAVELER"
+    },
+    "source_input_text": {
+      "question": "中国海关对经常出入境人员的定义是多长时间内入境超过一次？",
+      "conditions": "入境中国内地; 经常出入境人员定义"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 经常出入境人员定义",
+      "direction": "入境中国内地; 经常出入境人员定义 | 中国海关对经常出入境人员的定义是多长时间内入境超过一次？",
+      "traveler_status": "中国海关对经常出入境人员的定义是多长时间内入境超过一次？\n入境中国内地; 经常出入境人员定义"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P035": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "在实行红绿通道申报的中国内地口岸，旅客携带超过免税限额的物品入境，应怎样申报、走哪个通道？",
+      "conditions": "中国内地口岸; 红绿通道模式; 携带超过免税数额或限量物品"
+    },
+    "fact_provenance": {
+      "destination_country": "中国内地口岸; 红绿通道模式; 携带超过免税数额或限量物品",
+      "direction": "中国内地口岸; 红绿通道模式; 携带超过免税数额或限量物品 | 在实行红绿通道申报的中国内地口岸，旅客携带超过免税限额的物品入境，应怎样申报、走哪个通道？"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P036": {
+    "facts": {
+      "destination_country": "CN",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "以分离运输方式携带行李入境中国内地，获海关同意后，应自本人入境日起几个月内办结手续？",
+      "conditions": "入境中国内地; 分离运输行李; 海关同意"
+    },
+    "fact_provenance": {
+      "destination_country": "入境中国内地; 分离运输行李; 海关同意",
+      "direction": "入境中国内地; 分离运输行李; 海关同意 | 以分离运输方式携带行李入境中国内地，获海关同意后，应自本人入境日起几个月内办结手续？"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P037": {
+    "facts": {
+      "destination_country": "JP",
+      "direction": "INBOUND",
+      "item_name": "향수"
+    },
+    "source_input_text": {
+      "question": "일본으로 입국할 때 여행자의 향수 면세 한도는 몇 mL인가요?",
+      "conditions": "일본 입국; 대상 지식베이스는 중국/한국 정책 3종"
+    },
+    "fact_provenance": {
+      "destination_country": "일본 입국; 대상 지식베이스는 중국/한국 정책 3종",
+      "direction": "일본 입국; 대상 지식베이스는 중국/한국 정책 3종 | 일본으로 입국할 때 여행자의 향수 면세 한도는 몇 mL인가요?",
+      "item_name": "일본으로 입국할 때 여행자의 향수 면세 한도는 몇 mL인가요?\n일본 입국; 대상 지식베이스는 중국/한국 정책 3종"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P038": {
+    "facts": {
+      "destination_country": "TH",
+      "direction": "INBOUND",
+      "item_name": "주류"
+    },
+    "source_input_text": {
+      "question": "태국 입국 시 주류 면세 한도는 몇 리터인가요?",
+      "conditions": "태국 입국; 대상 지식베이스는 중국/한국 정책 3종"
+    },
+    "fact_provenance": {
+      "destination_country": "태국 입국; 대상 지식베이스는 중국/한국 정책 3종",
+      "direction": "태국 입국; 대상 지식베이스는 중국/한국 정책 3종 | 태국 입국 시 주류 면세 한도는 몇 리터인가요?",
+      "item_name": "태국 입국 시 주류 면세 한도는 몇 리터인가요?\n태국 입국; 대상 지식베이스는 중국/한국 정책 3종"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P039": {
+    "facts": {
+      "destination_country": "SG",
+      "direction": "INBOUND",
+      "item_name": "香烟"
+    },
+    "source_input_text": {
+      "question": "新加坡旅客入境时可以免税携带多少支香烟？",
+      "conditions": "新加坡入境; 入库文件不含新加坡法规"
+    },
+    "fact_provenance": {
+      "destination_country": "新加坡入境; 入库文件不含新加坡法规",
+      "direction": "新加坡入境; 入库文件不含新加坡法规 | 新加坡旅客入境时可以免税携带多少支香烟？",
+      "item_name": "新加坡旅客入境时可以免税携带多少支香烟？\n新加坡入境; 入库文件不含新加坡法规"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  },
+  "P040": {
+    "facts": {
+      "destination_country": "VN",
+      "direction": "INBOUND"
+    },
+    "source_input_text": {
+      "question": "越南入境的旅客可以免税携带多少升酒类？",
+      "conditions": "越南入境; 入库文件不含越南法规"
+    },
+    "fact_provenance": {
+      "destination_country": "越南入境; 入库文件不含越南法规",
+      "direction": "越南入境; 入库文件不含越南法规 | 越南入境的旅客可以免税携带多少升酒类？"
+    },
+    "not_available": [
+      "exact_age",
+      "unstated_personal_identity",
+      "answers_to_asked_policy_limits"
+    ],
+    "gold_answer_used": false
+  }
+}
