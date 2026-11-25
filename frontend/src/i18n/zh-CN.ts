@@ -105,6 +105,7 @@ export const zhCN = {
   'chat.userAvatar': '咨',
   'chat.answerUnavailable': '此回答已过期。请重新提问以获取最新回答。',
   'chat.basedOnDocuments': '基于上传文档',
+  'chat.modelName': '模型：{name}',
   'chat.retry': '重试',
   'chat.searching': '正在检索',
   'chat.searchingBody': '正在检索政策文件并组织回答',
