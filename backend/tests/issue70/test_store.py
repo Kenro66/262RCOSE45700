@@ -277,8 +277,11 @@ async def test_answer_visible_to_polling_without_database_persistence(db, reserv
         reserved.qid, "ANSWERED", answer="结论 [E1]",
         citations=[{"evidence_id": "E1", "filename": "a.pdf", "page": 1, "quote": "政策 A"}],
     )
+    answer.pop("model_name")  # Simulate a response cached before the field was added.
     await db.store.finish(reserved.qid, reserved.worker, "SUCCEEDED", answer)
-    assert (await db.store.get_execution(reserved.qid))["response"]["answer"] == answer["answer"]
+    cached = (await db.store.get_execution(reserved.qid))["response"]
+    assert cached["answer"] == answer["answer"]
+    assert cached["model_name"] is None
     async with db.factory() as session:
         submission_row = await session.get(ChatSubmission, reserved.qid)
         assert submission_row.response is None

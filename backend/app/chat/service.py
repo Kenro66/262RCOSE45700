@@ -21,11 +21,12 @@ SYSTEM_ERROR_MESSAGE = "系统暂时无法处理请求，请稍后重试。"
 
 
 class AnswerResult(BaseModel):
-    """Validate the two states owned by #12 without changing public contracts."""
+    """Validate the two states returned by Single RAG."""
     status: Literal["ANSWERED", "INSUFFICIENT_EVIDENCE"]
     answer: str | None = None
     citations: list[Citation] = Field(default_factory=list)
     message: str | None = None
+    model_name: str | None = None
 
     @model_validator(mode="after")
     def validate_result(self) -> Self:
@@ -37,8 +38,10 @@ class AnswerResult(BaseModel):
                     citation.filename, citation.quote, citation.evidence_id
                 )):
                     raise ValueError("Citation fields must not be blank")
-        elif self.citations:
-            raise ValueError("INSUFFICIENT_EVIDENCE must not include citations")
+        else:
+            if self.citations:
+                raise ValueError("INSUFFICIENT_EVIDENCE must not include citations")
+            self.model_name = None
         return self
 
 

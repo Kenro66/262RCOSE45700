@@ -31,7 +31,7 @@ def build_persistent_chat_router(store, runner):
             return reply(request, {"error_code": exc.code, "message": exc.message, "retryable": False}, exc.status)
         except Exception:
             logger.exception("持久化聊天接口失败")
-            return reply(request, {"status": "SYSTEM_ERROR", "answer": None, "citations": [], "message": "系统暂时无法处理请求，请稍后重试。", "error_code": "SYSTEM_ERROR", "retryable": True}, 500)
+            return reply(request, {"status": "SYSTEM_ERROR", "answer": None, "citations": [], "model_name": None, "message": "系统暂时无法处理请求，请稍后重试。", "error_code": "SYSTEM_ERROR", "retryable": True}, 500)
 
     @router.post("", response_model=PersistentChatResponse, responses={202: {"model": ExecutionView}})
     async def chat(payload: PersistentChatRequest, request: Request, wait: bool = True):

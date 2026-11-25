@@ -200,7 +200,7 @@ async def test_http_native_profile_fallback_uses_single_messages_and_same_provid
             else:
                 assert task == "generate_answer"
                 content = json.dumps({"answer": "测试规则原文。[E1]", "insufficient_evidence": False})
-        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        return httpx.Response(200, json={"model": f"provider-{task}", "choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(config, "settings", lambda: raw)
     monkeypatch.setattr(generation, "settings", lambda: raw)
@@ -213,6 +213,12 @@ async def test_http_native_profile_fallback_uses_single_messages_and_same_provid
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/chat", json={"message": "测试规则如何适用？"})
+            body = response.json()
+            expected = "provider-single" if workflow_failure else "provider-generate_answer"
+            url = f"/api/chat/sessions/{body['session_id']}/questions/{body['question_id']}/execution"
+            execution = await client.get(url)
+            assert response.status_code == execution.status_code == 200
+            assert body["model_name"] == execution.json()["response"]["model_name"] == expected
     finally:
         await runner.close()
     assert response.status_code == 200, response.text
@@ -241,6 +247,7 @@ async def test_workflow_error_fallback_shares_budget_conditions_and_sources(exec
     view = await run(execution)
     assert view["execution_status"] == "SUCCEEDED"
     assert view["response"]["status"] == ("INSUFFICIENT_EVIDENCE" if insufficient else "ANSWERED")
+    assert view["response"]["model_name"] is None
     assert len(services.queries) == 2 and '"country": "KR"' in services.queries[-1]
     assert '"country": "KR"' in services.fallback_messages[0][-1]["content"]
     async with execution.factory() as session:

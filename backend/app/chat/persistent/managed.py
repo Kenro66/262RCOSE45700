@@ -91,7 +91,10 @@ async def execute_managed(runner, data, stop_event):
                     question_id=qid, message="现有证据不足，无法确认相关政策。"), state=result.state)
         final_state = await checkpoint(result.state)
         await store.checkpoint(qid, runner.worker_id, final_state, result.response.clarification, execution_key=run_id)
-        await finish("SUCCEEDED", result.response, reliable=True)
+        response = result.response.model_copy(update={
+            "model_name": result.model_name if result.response.status == ChatStatus.ANSWERED else None,
+        })
+        await finish("SUCCEEDED", response, reliable=True)
     except Exception as error:
         # 取消和超时优先于错误分类，即使服务对异常做了包装也一样。
         try:

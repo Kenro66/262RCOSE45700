@@ -34,7 +34,7 @@ def assert_system_error(response):
     assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json() == dict(
-        status="SYSTEM_ERROR", answer=None, citations=[], message=SYSTEM_ERROR_MESSAGE
+        status="SYSTEM_ERROR", answer=None, citations=[], message=SYSTEM_ERROR_MESSAGE, model_name=None
     )
 
 
@@ -170,12 +170,14 @@ async def test_configured_single_wiring_runs_real_retriever_orchestrator_and_db_
         monkeypatch.setenv("RAG_MODE", mode)
 
     observed = await seed_real_wiring(db, monkeypatch)
-    monkeypatch.setattr(orchestrator, "generate_text", lambda messages:
-                        '{"answer":"政策允许办理。[E1]","insufficient_evidence":false}')
+    from app.adapters import generation
+    monkeypatch.setattr(generation, "generate", lambda *args, **kwargs: generation.GenerationResult(
+        model_name="single-provider-model", tool_calls=[], text='{"answer":"政策允许办理。[E1]","insufficient_evidence":false}'))
     response = await post(create_app(), {"message": "政策是什么？", "session_id": "s1"})
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ANSWERED"
+    assert body["model_name"] == "single-provider-model"
     assert body["citations"] == [dict(evidence_id="E1", filename="actual-name.pdf",
                                       page=2, quote="政策允许办理。")]
     assert observed == [("embed", ["政策是什么？"]), ("search", 5)]

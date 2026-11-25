@@ -100,7 +100,9 @@ class ChatRunner:
             raise TypeError("执行器必须返回 AgentResult")
         await checkpoint(result.state, result.response.clarification)  # 先保存最终状态，再确认执行完成。
         progress["reliable"] = True
-        await self.store.finish(question_id, self.worker_id, "SUCCEEDED", result.response.model_dump(mode="json"))
+        payload = result.response.model_dump(mode="json")
+        payload["model_name"] = result.model_name if result.response.status == ChatStatus.ANSWERED else None
+        await self.store.finish(question_id, self.worker_id, "SUCCEEDED", payload)
 
     async def _watch_cancel(self, question_id, *, execution_key=None):
         while True:

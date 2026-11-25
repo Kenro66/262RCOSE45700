@@ -92,7 +92,7 @@ class ChatStore:
                 if monotonic() >= expires_at:
                     self.responses.pop(row.question_id)
                 elif updated_at == row.updated_at.replace(tzinfo=timezone.utc):
-                    response = body
+                    response = {"model_name": None, **body}
         if response is None and question is not None and question.status == "WAITING":
             response = AgentChatResponse(
                 status=ChatStatus.NEEDS_CLARIFICATION,

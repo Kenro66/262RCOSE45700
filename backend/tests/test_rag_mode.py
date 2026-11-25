@@ -31,7 +31,7 @@ async def test_mode_selects_real_entry_and_preserves_empty_document_contract(db,
             assert body["execution_status"] == "SUCCEEDED"
             assert (await client.get("/api/chat/sessions")).status_code == 200
         else:
-            assert body == {"status": "NO_READY_DOCUMENTS", "answer": None, "citations": [], "message": "当前没有可用文件"}
+            assert body == {"status": "NO_READY_DOCUMENTS", "answer": None, "citations": [], "model_name": None, "message": "当前没有可用文件"}
             assert (await client.get("/api/chat/sessions")).status_code == 404
     if mode == "agent":
         await application.state.chat_runner.close()
