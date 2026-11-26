@@ -495,7 +495,7 @@ PR 要经审阅人批准后才能合并。检查没通过时修代码，不靠�
 
 ## 部署到服务器
 
-部署步骤补充中，请先参考 [Issue #47](https://github.com/Kenro66/262RCOSE45700/issues/47)。数据库迁移的说明见 [deploy/README.md](deploy/README.md)，部署脚本在 `deploy/`。
+部署步骤见 [deploy/README.ko.md](deploy/README.ko.md)（韩语）：EC2 连接与网络设置、`.env` 配置、数据库和后端启动、前端构建、Nginx、网站验证，以及用 GitHub Actions 做后续部署的设置和失败恢复。数据库迁移的说明见 [deploy/README.md](deploy/README.md)。相关讨论见 [Issue #47](https://github.com/Kenro66/262RCOSE45700/issues/47)。
 
 部署后的网站没有登录功能，拿到网址的人都能上传、删除文件，也会用掉生成服务的额度。所以网址只私下发给组员、教授和导师，不写在本仓库或其他公开的地方。
 

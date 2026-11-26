@@ -482,7 +482,7 @@ PR은 리뷰어의 승인을 받은 뒤 병합합니다. 검사가 실패하면 
 
 ## 서버 배포
 
-배포 절차는 보완 중입니다. 우선 [Issue #47](https://github.com/Kenro66/262RCOSE45700/issues/47)을 참고하세요. DB 마이그레이션 설명은 [deploy/README.md](deploy/README.md)에 있고, 배포 스크립트는 `deploy/`에 있습니다.
+배포 절차는 [deploy/README.ko.md](deploy/README.ko.md)를 참고하세요. EC2 접속과 네트워크 설정, `.env` 설정, DB와 백엔드 실행, 프론트엔드 빌드, Nginx, 웹사이트 검증, GitHub Actions를 이용한 후속 배포 설정과 실패 복구까지 정리되어 있습니다. DB 마이그레이션 설명은 [deploy/README.md](deploy/README.md)에 있으며, 관련 논의는 [Issue #47](https://github.com/Kenro66/262RCOSE45700/issues/47)을 참고하세요.
 
 배포된 웹사이트에는 로그인 기능이 없어 주소를 아는 사람은 누구나 파일을 업로드·삭제할 수 있고 생성 서비스 사용량도 차감됩니다. 따라서 주소는 팀원, 교수님, 멘토님께만 개별적으로 공유하며 이 저장소나 다른 공개된 곳에 쓰지 않습니다.
 
