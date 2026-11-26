@@ -68,7 +68,7 @@ agent 模式执行出错时，会自动退回单次 RAG 回答（受控 Fallback
 | 数据库 | PostgreSQL 18 + pgvector（向量 1024 维），Docker 运行 |
 | PDF 解析 | PyMuPDF；语言识别 lingua |
 | 嵌入 | `BAAI/bge-m3`，FlagEmbedding 在本地 CPU 运行 |
-| 生成 | OpenAI 兼容的 Chat Completions 接口。`GENERATION_PROFILE` 二选一：`furiosa_gemma`（FuriosaAI NPU 上的 `furiosa-ai/gemma-4-31B-it-FP8-block`）或 `legacy`（自行填写的模型地址，如学校 LLM 网关） |
+| 生成 | OpenAI 兼容的 Chat Completions 接口。`GENERATION_PROFILE` 二选一：`furiosa_gemma`（FuriosaAI NPU 上的 `furiosa-ai/gemma-4-31B-it-FP8-block`）或 `legacy`（自行填写的模型地址，如学校 LLM 网关）。部署后的网站目前用 `furiosa_gemma` |
 | Agent | LangGraph |
 | 检索 | 向量检索 Top-5；可选证据补全（年龄定义、跨页的列举条款） |
 | CI/CD | GitHub Actions；部署到 AWS EC2 |

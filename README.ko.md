@@ -68,7 +68,7 @@ agent 모드에서 실행 오류가 발생하면 Single RAG로 자동 전환해 
 | 데이터베이스 | PostgreSQL 18 + pgvector(1024차원 벡터), Docker로 실행 |
 | PDF 파싱 | PyMuPDF, 언어 감지 lingua |
 | 임베딩 | `BAAI/bge-m3`, FlagEmbedding으로 로컬 CPU에서 실행 |
-| 생성 | OpenAI 호환 Chat Completions API. `GENERATION_PROFILE`로 선택: `furiosa_gemma`(FuriosaAI NPU의 `furiosa-ai/gemma-4-31B-it-FP8-block`) 또는 `legacy`(직접 지정한 모델 주소, 예: 학교 LLM 게이트웨이) |
+| 생성 | OpenAI 호환 Chat Completions API. `GENERATION_PROFILE`로 선택: `furiosa_gemma`(FuriosaAI NPU의 `furiosa-ai/gemma-4-31B-it-FP8-block`) 또는 `legacy`(직접 지정한 모델 주소, 예: 학교 LLM 게이트웨이). 배포된 웹사이트는 현재 `furiosa_gemma`를 사용 |
 | Agent | LangGraph |
 | 검색 | 벡터 검색 Top-5, 선택적 근거 보완(연령 정의, 페이지를 넘는 열거 조항) |
 | CI/CD | GitHub Actions, AWS EC2 배포 |
