@@ -4,7 +4,7 @@ A team project to build a document-based RAG chatbot with document upload, quest
 
 中韩旅行携带品通关政策文档问答系统：上传官方政策 PDF，用中文或韩文提问，系统检索原文后生成回答，并给出文件名、PDF 物理页码和证据原文。证据不够时拒答，不用模型自己的知识补数字。
 
-> 韩语说明见 [README.ko.md](README.ko.md)。本文以 2026-11-24 的 main 为准。
+> 韩语说明见 [README.ko.md](README.ko.md)。本文以 2026-11-26 的 main 为准。
 
 ## 目录
 
@@ -34,6 +34,7 @@ A team project to build a document-based RAG chatbot with document upload, quest
 
 - 回答附带出处：文件名、PDF 物理页码（从 1 开始，不是印刷页码）、证据原文；补全的跨页证据显示连续页码范围
 - 证据不够时返回「找不到依据」，不编造
+- 回答上方显示这次实际使用的生成模型名
 - 网页支持中文、韩文界面
 
 **两种问答模式**（改配置 `RAG_MODE` 切换，不改代码）
@@ -80,7 +81,8 @@ agent 模式执行出错时，会自动退回单次 RAG 回答（受控 Fallback
 | --- | --- | --- | --- |
 | MVP | ～10/30 | 上传、解析、单次 RAG 问答、出处显示 | 完成 |
 | 第一批 | 11/1～11/15 | agent 编排、追问、正式评测题、CI/CD、AWS 部署 | 大部分已合并，未完成的移到第二批 |
-| 第二批 | 11/16～11/29 | agent 接入后端与网页、单次 RAG / agent 切换、生成换到 NPU、跨页条款 | 进行中 |
+| 第二批 | 11/16～11/29 | agent 接入后端与网页、单次 RAG / agent 切换、生成换到 NPU 上的 Gemma、跨页条款、评测流水线 | 进行中 |
+| 正式评测与最终发表 | 12 月 | 正式评测 30 题（LLM-only / Single RAG / Agentic RAG 对比）、12/11 功能冻结 | 计划中 |
 
 各项的具体状态和负责人见 GitHub Issues。
 
@@ -350,6 +352,8 @@ Swagger验证不等于真实前端页面验收。
 | `NEEDS_CLARIFICATION` | 缺少国家、出入境方向等必要条件（agent） | 追问问题和填写条件的输入框 |
 | `CONFLICTING_EVIDENCE` | 两份文件说法冲突（agent） | 同时列出双方的依据 |
 
+问答结果里的 `model_name` 是这次实际使用的生成模型名，网页显示在回答上方；没有实际生成回答时（如没有可用文件、拒答）可能为空。
+
 出处里的 `page` 是从 1 开始的 PDF 物理页码，不是印刷页码；`filename` 来自文件记录，`quote` 来自检索到的原文。生成服务的 Key 只放在后端，不会进入前端或浏览器请求。
 
 ## 前端启动与真实后端联调
@@ -491,7 +495,7 @@ PR 要经审阅人批准后才能合并。检查没通过时修代码，不靠�
 
 ## 部署到服务器
 
-【待补：王诗琪（Issue #47）】服务器需要准备什么、服务器上的 `.env` 要填哪几项（只写名字）、第一次手动部署的步骤、之后怎么更新、怎么确认部署成功、出问题看哪里。数据库迁移的说明见 [deploy/README.md](deploy/README.md)。
+部署步骤补充中，请先参考 [Issue #47](https://github.com/Kenro66/262RCOSE45700/issues/47)。数据库迁移的说明见 [deploy/README.md](deploy/README.md)，部署脚本在 `deploy/`。
 
 部署后的网站没有登录功能，拿到网址的人都能上传、删除文件，也会用掉生成服务的额度。所以网址只私下发给组员、教授和导师，不写在本仓库或其他公开的地方。
 
@@ -510,7 +514,7 @@ PR 要经审阅人批准后才能合并。检查没通过时修代码，不靠�
 
 正式评测题的分布：普通问答 12、条件追问 7、国家／出入境方向区分 5、证据不足拒答 6。现有 5 份文件里找不到真正的政策冲突，所以没有冲突题；冲突功能只用模拟数据验证过流程。
 
-真实调用的评测脚本在 `backend/scripts/`（如 `smoke_issue12.py`、`validate_agent_real.py`、`evaluate_agent_quality.py`）。这些脚本会调用外部模型、可能计费，有的会写数据库，运行前先看脚本说明并用独立的测试库。自动判定的结果不能代替人工核对出处页码。
+评测脚本在 `backend/scripts/`。`eval_http_pipeline.py` 是统一的 HTTP 评测流水线：Single RAG 和 Agentic RAG 都通过 `/api/chat` 评测，支持 202 异步轮询和追问后的第二轮，结果用同一种 JSONL 格式记录（说明见 `backend/scripts/README_issue48_adapter.md`）。另有 `smoke_issue12.py`、`validate_agent_real.py`、`evaluate_agent_quality.py` 等真实调用脚本。这些脚本会调用外部模型、可能计费，有的会写数据库，运行前先看脚本说明并用独立的测试库。自动判定的结果不能代替人工核对出处页码。
 
 **Pilot 题上的单次 RAG 基线**（11/3，MVP 代码）：可回答题完全正确率 85.7%、综合任务成功率 87.2%、Top-5 命中至少一页标准证据 100%、覆盖全部标准证据页 97.1%、引用文件名／页码／原文匹配 100%、平均响应 8.75 秒。
 
