@@ -225,3 +225,6 @@ node_modules/
 # 上传的原始 PDF 不提交，只保留空目录
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# FuriosaAI 等生成服务的密钥文件
+backend/.secrets/
