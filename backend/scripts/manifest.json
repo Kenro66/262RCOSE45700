@@ -1,0 +1,12 @@
+{
+  "source": "r02-frozen.zip/r02",
+  "source_run_sha256": "43c6375af6b4e3a8360869d7ff8161a86734fd965b48bf6bde538f76b3973185",
+  "files": {
+    "clarification-facts.json": "b55d34e21322ee59c02f56c853e0f3de2d42663060b74ee759fa018b19a05e6e",
+    "condition_adapter.py": "eeb876e55407bc8d7ec2621d540be081d6983c10a7adeef916df2b488214fab1",
+    "make_facts.py": "932b79ddf35a80c5a7122ff6fb03a955a81da905abd3ed69fe263be3fd1710e4",
+    "run_r02_original.py": "43c6375af6b4e3a8360869d7ff8161a86734fd965b48bf6bde538f76b3973185"
+  },
+  "facts_cases": 40,
+  "logic_unchanged": true
+}
